@@ -7,5 +7,5 @@
     "css": "style.css",
     "author": "Coneja-Chibi",
     "version": "0.4.0",
-    "description": "Reasoning-based lorebook retrieval using hierarchical tree indexing. Replaces keyword triggers with LLM-driven contextual search via tool calls."
+    "description": "Reasoning-driven SillyTavern lorebook retrieval with autonomous memory tools and an optional revision-safe Unified Continuity Engine."
 }

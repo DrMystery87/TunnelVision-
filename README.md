@@ -13,15 +13,15 @@
 
 ## v0.4.0 — Unified Turn Engine
 
-Optional **Unified** continuity mode now uses one local, bounded context slot and a revision-bound journal:
+Optional **Unified** continuity mode turns roleplay continuity into a local, revision-safe transaction pipeline. It assembles accepted continuity alongside existing world, smart-context, and notebook sources into one bounded ContextBundle:
 
-- no pre-generation sidecar retrieval or competing legacy auto-writers;
-- assistant-derived patches stay provisional until the next user turn;
-- swipe, regenerate, edit, chat switch, and interrupted writes are rejected or compensated;
-- accepted claims retain source provenance and can be manually imported from legacy World Info without altering it;
-- World Info projection is opt-in and restricted to writable managed books.
+- one extension prompt slot, with no pre-generation sidecar retrieval or competing legacy auto-writers;
+- assistant-derived patches remain provisional until the next user turn confirms them;
+- swipes, regenerates, edits, chat switches, and interrupted writes are rejected or compensated safely;
+- accepted claims keep their source provenance and legacy World Info can be imported without altering the original book;
+- optional compatibility projection writes only accepted, evidence-linked facts to writable managed lorebooks.
 
-Use **Continuity → Unified engine**. Keep “Project accepted facts” off unless you explicitly want compatibility entries created in the selected lorebook.
+Use **Continuity → Unified engine**. Keep **Project accepted facts** off unless you explicitly want compatible, managed entries created in the selected lorebook.
 
 ---
 
@@ -434,19 +434,19 @@ That's it. TunnelVision registers its tools automatically. Your AI will start us
 Every tool can be individually enabled/disabled in Advanced Settings:
 Search, Remember, Update, Forget, Summarize, Reorganize, Merge/Split, Notebook
 
-### Experimental Continuity Preview
+### Continuity & Memory Safety
 
-The **Continuity Analyzer** is an opt-in, review-first preview pipeline. It is disabled by default and never writes a lorebook entry until you press **Apply** on a draft.
+TunnelVision includes a continuity layer for preserving role, scene, and accepted-fact state without letting stale generations or duplicate writers contaminate memory. **Unified** is the recommended mode for new continuity use; it remains local by default and does not write compatibility lorebook entries unless you opt in.
 
 | Control | Safe use |
 |---------|----------|
-| Continuity Analyzer → Draft Review | Creates evidence-linked review drafts after a response. |
-| Typed Role & Scene State | Adds reviewed persona, relationship, knowledge, physical, scene, and arc constraints. |
-| Context Bundle → Shadow | Measures the unified prompt bundle without injecting it. |
-| Maintenance → Manual only | Creates non-destructive, provenance-linked reflections only when you press **Run maintenance now**. |
-| Safety & Evaluation | Pause the new pipeline, export an inspection, preview legacy import, or run a local shadow evaluation. |
+| Continuity Engine → Legacy | Keeps the original draft-review workflow. |
+| Continuity Engine → Shadow | Evaluates the unified path without changing active behavior. |
+| Continuity Engine → Unified | Uses one bounded ContextBundle and a revision-bound provisional journal. |
+| Project accepted facts | Off by default; enable only to write accepted, evidence-linked compatibility entries to a writable managed lorebook. |
+| Safety & Evaluation | Pause the pipeline, export an inspection, preview/import legacy claims, or run a local shadow evaluation. |
 
-Recommended first use after installing from GitHub: enable **Draft Review** and **Context Bundle → Shadow**, play a few representative turns, then run **Shadow evaluation**. Inspect drafts before applying any of them. The Safety & Evaluation section is compact by design and stays out of the way until needed.
+Recommended first use after installing from GitHub: select **Unified**, keep **Project accepted facts** off, and play a few representative turns. Use **Shadow** when you want to compare behavior first. The Safety & Evaluation section stays compact and out of the way until needed.
 
 ---
 
@@ -512,6 +512,11 @@ diagnostics.js    : 30+ failure checks with auto-fixes
 commands.js       : !command syntax interceptor
 auto-summary.js   : Interval-based summary injection
 activity-feed.js  : Real-time tool call visibility widget
+turn-coordinator.js    : Revision-aware generation snapshots and staleness checks
+unified-turn-engine.js : Provisional continuity journal, acceptance, recovery, and reversal
+context-bundle.js      : Single bounded continuity context assembly
+world-info-adapter.js  : Opt-in, policy-gated compatibility projection
+legacy-adapter.js      : Read-only legacy World Info import
 tools/
   ├── search.js      : Channel navigation and entry retrieval
   ├── remember.js    : Create new entries (with dedup + schema design)
