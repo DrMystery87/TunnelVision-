@@ -11,6 +11,7 @@
 
 import { getContext } from '../../../st-context.js';
 import { ARC_MAX_HISTORY as MAX_HISTORY, RECENT_RESOLVED_ARC_TURNS } from './constants.js';
+import { getSettings } from './tree-store.js';
 
 const ARCS_KEY = 'tunnelvision_arcs';
 const VALID_STATUSES = new Set(['active', 'stalled', 'resolved', 'abandoned']);
@@ -149,6 +150,23 @@ export function processArcUpdates(arcUpdates) {
             result.updated++;
             if (status === 'resolved' || status === 'abandoned') result.resolved++;
         } else {
+            const maxActive = Math.min(Math.max(Number(getSettings()?.continuityMaxActiveArcs) || 5, 1), 12);
+            const activeArcs = arcs.filter(a => a.status === 'active' || a.status === 'stalled');
+            if ((status === 'active' || status === 'stalled') && activeArcs.length >= maxActive) {
+                const oldest = activeArcs.sort((a, b) => (a.updatedAt || a.createdAt) - (b.updatedAt || b.createdAt))[0];
+                if (oldest) {
+                    oldest.history = [...(oldest.history || []), {
+                        status: oldest.status,
+                        progression: oldest.progression,
+                        timestamp: oldest.updatedAt,
+                    }].slice(-MAX_HISTORY);
+                    oldest.status = 'abandoned';
+                    oldest.progression = `${oldest.progression || 'No recent progression'} (archived after reaching the active-arc limit)`;
+                    oldest.updatedAt = now;
+                    try { oldest.resolvedAtMsgIdx = getContext().chat?.length || 0; } catch { /* */ }
+                    result.resolved++;
+                }
+            }
             const newArc = {
                 id: generateArcId(),
                 title: String(update.title).trim(),

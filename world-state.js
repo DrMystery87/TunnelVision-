@@ -107,6 +107,20 @@ function setWorldState(state) {
     } catch { /* metadata not available */ }
 }
 
+/**
+ * Extract explicit—not inferred—time/location signals from recent chat.
+ * These anchors constrain the world-state updater without adding another LLM
+ * call or guessing at narrative prose.
+ */
+export function extractTemporalAnchor(text) {
+    const source = String(text || '');
+    const labeledTime = source.match(/^\s*(?:time|time of day)\s*:\s*([^\n]{2,80})/im)?.[1]?.trim();
+    const clockTime = source.match(/\b(?:at|around)\s+(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?))/i)?.[1]?.trim();
+    const labeledLocation = source.match(/^\s*(?:location|place)\s*:\s*([^\n]{2,120})/im)?.[1]?.trim();
+    if (!labeledTime && !clockTime && !labeledLocation) return null;
+    return { time: labeledTime || clockTime || '', location: labeledLocation || '' };
+}
+
 // ── Structural Validation ────────────────────────────────────────
 
 const EXPECTED_SECTIONS = [
@@ -397,6 +411,16 @@ async function buildUpdatePrompt(previousState, recentExcerpt, priorityContext =
         '',
     );
 
+    const temporalAnchor = settings.worldStateTemporalAnchoring !== false
+        ? extractTemporalAnchor(recentExcerpt)
+        : null;
+    if (temporalAnchor) {
+        const anchorLines = ['[Explicit Recent Chat Anchor — preserve unless directly contradicted]'];
+        if (temporalAnchor.time) anchorLines.push(`Time: ${temporalAnchor.time}`);
+        if (temporalAnchor.location) anchorLines.push(`Location: ${temporalAnchor.location}`);
+        parts.push(anchorLines.join('\n'), '');
+    }
+
     // Priority update context from post-turn processor
     if (priorityContext) {
         const ctxLines = ['[Priority Update Context]'];
@@ -536,6 +560,7 @@ export async function updateWorldState(forceUpdate = false, priorityContext = nu
             text: cleaned,
             previousText: currentState?.text || '',
             sections,
+            temporalAnchor: settings.worldStateTemporalAnchoring !== false ? extractTemporalAnchor(recentExcerpt) : null,
         };
 
         setWorldState(newState);

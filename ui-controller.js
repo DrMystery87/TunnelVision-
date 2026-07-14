@@ -246,6 +246,8 @@ export function bindUIEvents() {
     $('#tv_continuity_export_inspection').on('click', onExportContinuityInspection);
     $('#tv_continuity_legacy_preview').on('click', onPreviewLegacyContinuityImport);
     $('#tv_continuity_run_evaluation').on('click', onRunContinuityEvaluation);
+    $('#tv_post_turn_min_fact_significance, #tv_post_turn_fact_consolidation_turns, #tv_continuity_max_active_arcs').on('change', onContinuityRpSafeguardChange);
+    $('#tv_retrieval_manifest_dedup, #tv_smart_context_narrative_phases, #tv_world_state_temporal_anchoring').on('change', onContinuityRpSafeguardChange);
     $('#tv_continuity_drafts').on('click', '.tv-continuity-draft-apply', onApplyContinuityDraft);
     $('#tv_continuity_drafts').on('click', '.tv-continuity-draft-reject', onRejectContinuityDraft);
     $('#tv_continuity_applied').on('click', '.tv-continuity-transaction-undo', onUndoContinuityTransaction);
@@ -1209,6 +1211,20 @@ function onContinuitySafetyToggle() {
     settings.continuityEvaluationDiagnostics = $('#tv_continuity_evaluation_diagnostics').prop('checked');
     saveSettingsDebounced();
 }
+function onContinuityRpSafeguardChange() {
+    const settings = getSettings();
+    const significance = $('#tv_post_turn_min_fact_significance').val();
+    settings.postTurnMinimumFactSignificance = ['low', 'medium', 'high'].includes(significance) ? significance : 'medium';
+    settings.postTurnFactConsolidationTurns = Math.min(Math.max(Math.round(Number($('#tv_post_turn_fact_consolidation_turns').val()) || 3), 1), 6);
+    settings.continuityMaxActiveArcs = Math.min(Math.max(Math.round(Number($('#tv_continuity_max_active_arcs').val()) || 5), 1), 12);
+    settings.retrievalManifestDedup = $('#tv_retrieval_manifest_dedup').prop('checked');
+    settings.smartContextNarrativePhases = $('#tv_smart_context_narrative_phases').prop('checked');
+    settings.worldStateTemporalAnchoring = $('#tv_world_state_temporal_anchoring').prop('checked');
+    $('#tv_post_turn_min_fact_significance').val(settings.postTurnMinimumFactSignificance);
+    $('#tv_post_turn_fact_consolidation_turns').val(settings.postTurnFactConsolidationTurns);
+    $('#tv_continuity_max_active_arcs').val(settings.continuityMaxActiveArcs);
+    saveSettingsDebounced();
+}
 function onExportContinuityInspection() {
     try { downloadContinuityInspection(); toastr.success('Continuity inspection exported.', 'TunnelVision'); }
     catch (error) { toastr.error(error.message, 'TunnelVision'); }
@@ -1458,6 +1474,12 @@ function populateConnectionProfiles() {
     $('#tv_continuity_reflections_in_bundle').prop('checked', settings.continuityReflectionsInBundle === true);
     $('#tv_continuity_kill_switch').prop('checked', settings.continuitySafetyKillSwitch === true);
     $('#tv_continuity_evaluation_diagnostics').prop('checked', settings.continuityEvaluationDiagnostics === true);
+    $('#tv_post_turn_min_fact_significance').val(['low', 'medium', 'high'].includes(settings.postTurnMinimumFactSignificance) ? settings.postTurnMinimumFactSignificance : 'medium');
+    $('#tv_post_turn_fact_consolidation_turns').val(settings.postTurnFactConsolidationTurns ?? 3);
+    $('#tv_retrieval_manifest_dedup').prop('checked', settings.retrievalManifestDedup !== false);
+    $('#tv_smart_context_narrative_phases').prop('checked', settings.smartContextNarrativePhases !== false);
+    $('#tv_world_state_temporal_anchoring').prop('checked', settings.worldStateTemporalAnchoring !== false);
+    $('#tv_continuity_max_active_arcs').val(settings.continuityMaxActiveArcs ?? 5);
     renderContinuityDrafts();
     renderAppliedContinuityTransactions();
 }

@@ -25,6 +25,7 @@ import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { getSettings, isLorebookEnabled, setLorebookEnabled, isNativeInjectionBook } from './tree-store.js';
 import { preflightToolRuntimeState, registerTools } from './tool-registry.js';
 import { resetSearchLoopTracker, resetSelectiveRetrievalTracker } from './tools/search.js';
+import { resetRetrievalManifest } from './retrieval-manifest.js';
 import { flushPendingSummaryHide } from './tools/summarize.js';
 import { bindUIEvents, refreshUI } from './ui-controller.js';
 import { initActivityFeed } from './activity-feed.js';
@@ -878,6 +879,7 @@ async function onGenerationStarted(type, opts, dryRun) {
     // Do NOT set _generationInProgress on dry runs: they never fire MESSAGE_RECEIVED or
     // GENERATION_ENDED to clear it, so it would stay true forever and block tool re-registration.
     if (dryRun) return;
+    resetRetrievalManifest();
 
     if (isPendingSlashCommandGeneration(type)) {
         _skipPreCommandGeneration = true;

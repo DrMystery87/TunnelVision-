@@ -388,6 +388,14 @@ export const SETTING_DEFAULTS = {
     continuityReflectionsInBundle: false,
     continuitySafetyKillSwitch: false,
     continuityEvaluationDiagnostics: false,
+    // Roleplay refinement safeguards. These remain opt-in where they alter
+    // cadence; the safe filtering and retrieval de-duplication defaults on.
+    postTurnMinimumFactSignificance: 'medium',
+    postTurnFactConsolidationTurns: 3,
+    retrievalManifestDedup: true,
+    continuityMaxActiveArcs: 5,
+    smartContextNarrativePhases: true,
+    worldStateTemporalAnchoring: true,
 };
 
 function ensureSettings() {

@@ -34,6 +34,7 @@ import {
     normalizeConditionalEvaluation,
     parseSafeUid,
 } from './sidecar-safety.js';
+import { markRetrievalEntries } from './retrieval-manifest.js';
 
 const TV_SIDECAR_RETRIEVAL_KEY = 'tunnelvision_sidecar_retrieval';
 
@@ -241,10 +242,11 @@ function buildConditionalSection(conditionalEntries) {
 /**
  * Resolve node IDs to entry content across all active lorebooks.
  * @param {string[]} nodeIds
- * @returns {Promise<string>}
+ * @returns {Promise<{ text: string, entries: Array<{bookName: string, uid: number}> }>}
  */
 async function resolveNodeContent(nodeIds) {
     const results = [];
+    const entries = [];
     const seenEntries = new Set();
 
     for (const nodeId of nodeIds) {
@@ -269,11 +271,12 @@ async function resolveNodeContent(nodeIds) {
 
                 const title = entry.comment || entry.key?.[0] || `Entry #${uid}`;
                 results.push(`[${bookName} | ${title}]\n${entry.content}`);
+                entries.push({ bookName, uid });
             }
         }
     }
 
-    return results.join('\n\n');
+    return { text: results.join('\n\n'), entries };
 }
 
 /**
@@ -393,7 +396,7 @@ function parseSidecarResponse(response) {
  * Resolve accepted conditional entries to their content for injection.
  * @param {Array<{ uid: number, accepted: boolean, reason: string }>} evaluations
  * @param {Array<{ bookName: string, uid: number, title: string }>} conditionalEntries
- * @returns {Promise<string>}
+ * @returns {Promise<{ text: string, entries: Array<{bookName: string, uid: number}> }>}
  */
 async function resolveConditionalContent(evaluations, conditionalEntries) {
     const acceptedEntries = new Set(
@@ -401,9 +404,10 @@ async function resolveConditionalContent(evaluations, conditionalEntries) {
             .filter(e => e.accepted)
             .map(e => conditionalEntryKey(e.lorebook, e.uid)),
     );
-    if (acceptedEntries.size === 0) return '';
+    if (acceptedEntries.size === 0) return { text: '', entries: [] };
 
     const results = [];
+    const entries = [];
     for (const ce of conditionalEntries) {
         if (!acceptedEntries.has(conditionalEntryKey(ce.bookName, ce.uid))) continue;
 
@@ -414,9 +418,10 @@ async function resolveConditionalContent(evaluations, conditionalEntries) {
         if (!entry?.content || entry.disable) continue;
 
         results.push(entry.content);
+        entries.push({ bookName: ce.bookName, uid: ce.uid });
     }
 
-    return results.join('\n\n');
+    return { text: results.join('\n\n'), entries };
 }
 
 // ─── Main Entry Point ────────────────────────────────────────────
@@ -497,12 +502,14 @@ export async function runSidecarRetrieval({ signal } = {}) {
 
         // Resolve node content (tree-based retrieval)
         let injectionParts = [];
+        const injectedEntries = [];
 
         if (nodeIds.length > 0) {
             const nodeContent = await resolveNodeContent(nodeIds);
             if (signal?.aborted) return;
-            if (nodeContent.trim()) {
-                injectionParts.push(nodeContent);
+            if (nodeContent.text.trim()) {
+                injectionParts.push(nodeContent.text);
+                injectedEntries.push(...nodeContent.entries);
             }
         }
 
@@ -510,8 +517,9 @@ export async function runSidecarRetrieval({ signal } = {}) {
         if (conditionalEvaluations.length > 0) {
             const conditionalContent = await resolveConditionalContent(conditionalEvaluations, conditionalEntries);
             if (signal?.aborted) return;
-            if (conditionalContent.trim()) {
-                injectionParts.push(conditionalContent);
+            if (conditionalContent.text.trim()) {
+                injectionParts.push(conditionalContent.text);
+                injectedEntries.push(...conditionalContent.entries);
             }
 
             const acceptedCount = conditionalEvaluations.filter(e => e.accepted).length;
@@ -534,6 +542,7 @@ export async function runSidecarRetrieval({ signal } = {}) {
 
         if (signal?.aborted) return;
         setExtensionPrompt(TV_SIDECAR_RETRIEVAL_KEY, capped, position, depth, false, role);
+        markRetrievalEntries(injectedEntries);
 
         // Resolve node labels for the feed
         const nodeLabels = nodeIds.map(id => {

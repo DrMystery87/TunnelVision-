@@ -74,11 +74,36 @@ import { callWithRetry, generateAnalytical } from '../agent-utils.js';
 import {
     contentHash,
     computeChangeFraction,
+    filterFactsBySignificance,
+    consolidateFactBatch,
     updateTrackers,
     runPostTurnProcessor,
     shouldInvalidateSmartContextPreWarm,
     refreshSmartContextAfterPostTurn,
 } from '../post-turn-processor.js';
+
+describe('fact quality safeguards', () => {
+    it('filters low-significance facts when the threshold is medium', () => {
+        const facts = [
+            { title: 'Greeting', content: 'Elena greeted Marcus.', significance: 'low' },
+            { title: 'Promise', content: 'Elena promised to return.', significance: 'medium' },
+            { title: 'Betrayal', content: 'Marcus revealed the betrayal.', significance: 'high' },
+        ];
+        expect(filterFactsBySignificance(facts, 'medium').map(f => f.title)).toEqual(['Promise', 'Betrayal']);
+    });
+
+    it('consolidates exact-title facts without dropping distinct details', () => {
+        const result = consolidateFactBatch([
+            { title: "Elena's promise", content: 'Elena promised to return at dawn.', keys: ['Elena'], significance: 'medium' },
+            { title: "Elena's promise", content: 'The promise was made at the harbor.', keys: ['harbor'], significance: 'high' },
+        ]);
+        expect(result).toHaveLength(1);
+        expect(result[0].content).toContain('return at dawn');
+        expect(result[0].content).toContain('harbor');
+        expect(result[0].keys).toEqual(['Elena', 'harbor']);
+        expect(result[0].significance).toBe('high');
+    });
+});
 import { getSettings } from '../tree-store.js';
 import { getActiveTunnelVisionBooks, resolveTargetBook } from '../tool-registry.js';
 import { formatChatExcerpt } from '../agent-utils.js';

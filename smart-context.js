@@ -35,6 +35,7 @@ import { getContext } from "../../../st-context.js";
 import { getSettings, getTrackerUids, getTree } from "./tree-store.js";
 import { getActiveTunnelVisionBooks, getInjectionManagedBooks } from "./tool-registry.js";
 import { getSelectivelyRetrievedUids } from "./tools/search.js";
+import { isInRetrievalManifest } from "./retrieval-manifest.js";
 import { getCachedWorldInfoSync, getCachedWorldInfo, getEntryTurnIndex } from "./entry-manager.js";
 import { getEntryTitle, getMaxContextTokens } from "./agent-utils.js";
 import { getWorldStateSections } from "./world-state.js";
@@ -322,17 +323,24 @@ const PHASE_PATTERNS = {
     /\b(rest|sleep|eat|drink|cook|read|study|practice|train|meditate|relax|bathe|dress|prepare|morning|evening|bed|home|routine)\b/gi,
   emotional:
     /\b(cry|tears|sob|laugh|embrace|hug|kiss|love|hate|grieve|mourn|comfort|console|confess|fear|angry|rage|despair|joy|happy)\b/gi,
+  tension:
+    /\b(threaten|danger|risk|warn|trap|ambush|betray|suspect|hide|stalk|lurk|scheme|plot|conspire|blackmail|ultimatum)\b/gi,
+  intimacy:
+    /\b(touch|caress|whisper|close|lean|hold|gentle|tender|soft|warm|breath|heartbeat|blush|tremble|gaze)\b/gi,
+  humor:
+    /\b(joke|laugh|tease|mock|grin|smirk|ridiculous|absurd|hilarious|prank|witty|sarcasm)\b/gi,
 };
 
 /**
  * Detect the current conversation phase from recent chat text.
  * @param {string} recentText - Lowercased recent chat text
- * @returns {'combat'|'dialogue'|'exploration'|'downtime'|'emotional'}
+ * @returns {'combat'|'dialogue'|'exploration'|'downtime'|'emotional'|'tension'|'intimacy'|'humor'}
  */
 function detectConversationPhase(recentText) {
   let best = "dialogue";
   let bestCount = 0;
   for (const [phase, pattern] of Object.entries(PHASE_PATTERNS)) {
+    if (!getSettings().smartContextNarrativePhases && ['tension', 'intimacy', 'humor'].includes(phase)) continue;
     pattern.lastIndex = 0;
     const matches = (recentText.match(pattern) || []).length;
     if (matches > bestCount) {
@@ -356,6 +364,9 @@ function phaseBoost(entry, phase) {
     exploration: { location: 5, ability: 1, relationship: 0, lore: 3 },
     downtime: { location: 1, ability: 0, relationship: 3, lore: 1 },
     emotional: { location: 0, ability: 0, relationship: 5, lore: 1 },
+    tension: { location: 2, ability: 2, relationship: 3, lore: 3 },
+    intimacy: { location: 0, ability: 0, relationship: 5, lore: 1 },
+    humor: { location: 0, ability: 0, relationship: 4, lore: 1 },
   };
   const w = weights[phase];
   if (!w) return 0;
@@ -1379,6 +1390,17 @@ export function buildSmartContextPrompt() {
   }
 
   if (candidates.length === 0) return "";
+
+  // The sidecar retrieval pass runs first. Do not repeat its resolved entries
+  // through Smart Context in the same prompt, while retaining mandatory
+  // tracker/story anchors.
+  if (settings.retrievalManifestDedup !== false) {
+    candidates = candidates.filter(
+      (c) => c.isTracker || (c.isSummary && isStorySummaryEntry(c.entry))
+        || !isInRetrievalManifest(c.bookName, c.entry.uid),
+    );
+    if (candidates.length === 0) return "";
+  }
 
   // Selective retrieval filter: if the model has explicitly selected UIDs
   // via TunnelVision_Search this turn, only inject those entries (plus

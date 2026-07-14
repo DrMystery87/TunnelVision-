@@ -6,7 +6,7 @@
                 <span class="tv-header-title">TunnelVision</span>
                 <span class="tv-header-subtitle">Reasoning-based lorebook retrieval</span>
             </div>
-            <div class="tv-header-badge">v0.2.7</div>
+            <div class="tv-header-badge">v0.3.0</div>
             <div class="tv-header-chevron"><i class="fa-solid fa-chevron-down"></i></div>
         </div>
         <div class="tv-settings-body" style="display:none;">
@@ -997,6 +997,23 @@
                                         <div id="tv_continuity_applied" class="tv-entry-list" style="margin-top:4px;"></div>
                                     </div>
                                 </div>
+                                <details style="margin-top:10px; padding-top:8px; border-top:1px solid var(--SmartThemeBorderColor);">
+                                    <summary class="tv-label" style="cursor:pointer;">RP safeguards</summary>
+                                    <div class="tv-help-text" style="margin:4px 0 8px;">Low-noise memory and context protections. Defaults favor stable, reviewable roleplay.</div>
+                                    <label class="tv-label" for="tv_post_turn_min_fact_significance">Minimum saved fact significance</label>
+                                    <select id="tv_post_turn_min_fact_significance" class="tv-select">
+                                        <option value="low">Low — save all eligible facts</option>
+                                        <option value="medium">Medium — persistent facts only (recommended)</option>
+                                        <option value="high">High — major developments only</option>
+                                    </select>
+                                    <label class="tv-label" for="tv_post_turn_fact_consolidation_turns" style="margin-top:6px;">Fact consolidation window (processed turns)</label>
+                                    <input id="tv_post_turn_fact_consolidation_turns" type="number" class="tv-number-input" min="1" max="6" step="1" value="3" />
+                                    <label class="tv-checkbox-row"><input id="tv_retrieval_manifest_dedup" type="checkbox" checked /><span>Prevent duplicate sidecar and Smart Context retrieval</span></label>
+                                    <label class="tv-checkbox-row"><input id="tv_smart_context_narrative_phases" type="checkbox" checked /><span>Use tension, intimacy, and humor phase cues</span></label>
+                                    <label class="tv-checkbox-row"><input id="tv_world_state_temporal_anchoring" type="checkbox" checked /><span>Prefer explicit time and location cues from recent chat</span></label>
+                                    <label class="tv-label" for="tv_continuity_max_active_arcs" style="margin-top:6px;">Maximum active narrative arcs</label>
+                                    <input id="tv_continuity_max_active_arcs" type="number" class="tv-number-input" min="1" max="12" step="1" value="5" />
+                                </details>
                     </div>
                 </details>
                 </div>

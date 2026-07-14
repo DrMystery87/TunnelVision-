@@ -55,7 +55,14 @@ vi.mock('../world-info-attribution.js', () => ({
     withWorldInfoAttribution: vi.fn(async (_source, operation) => await operation()),
 }));
 
-import { getWorldStateTemporalSnapshot } from '../world-state.js';
+import { getWorldStateTemporalSnapshot, extractTemporalAnchor } from '../world-state.js';
+
+describe('explicit temporal anchors', () => {
+    it('captures labeled facts without inferring narrative prose', () => {
+        expect(extractTemporalAnchor('Time: 9:30 PM\nLocation: The Old Harbor')).toEqual({ time: '9:30 PM', location: 'The Old Harbor' });
+        expect(extractTemporalAnchor('They walked through the city at sunset.')).toBeNull();
+    });
+});
 
 describe('getWorldStateTemporalSnapshot', () => {
     beforeEach(() => {

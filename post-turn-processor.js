@@ -347,7 +347,7 @@ export async function runPostTurnProcessor(force = false) {
 
     // ── Step 2: Scene Archiving (depends on scene detection from Step 1) ──
     const sceneChange = analysisResult?.sceneChange;
-    if (sceneChange?.detected && settings.postTurnSceneArchive !== false) {
+    if (sceneChange?.archive && settings.postTurnSceneArchive !== false) {
       const archiveResult = await archiveScene(
         targetBook,
         chat,
@@ -368,7 +368,7 @@ export async function runPostTurnProcessor(force = false) {
     }
 
     // Trigger priority world state update on significant events
-    if (result.sceneArchived || result.factsCreated >= 3) {
+    if (result.sceneArchived || analysisResult?.sceneChange?.level === 'micro' || result.factsCreated >= 3) {
       requestPriorityUpdate({
         sceneArchived: result.sceneArchived,
         sceneTitle: result.sceneTitle,
@@ -378,7 +378,9 @@ export async function runPostTurnProcessor(force = false) {
     }
 
     // Record completion + rollback data for swipe recovery
+    const persistedState = getProcessorState() || {};
     setProcessorState({
+      ...persistedState,
       lastProcessedMsgIdx: chat.length - 1,
       lastProcessedAt: Date.now(),
       lastResult: result,
@@ -632,17 +634,71 @@ function buildPostTurnAnalysisPrompt(
     "",
     "Respond with ONLY a single JSON object — no commentary, no code fences:",
     "{",
-    '  "facts": [{"title": "short title", "content": "third-person description", "when": "Day X, time", "keys": ["keyword1"]}],',
-    '  "sceneChange": {',
-    '    "detected": true/false,',
+    '  "facts": [{"title": "short title", "content": "third-person description", "when": "Day X, time", "keys": ["keyword1"], "significance": "low|medium|high"}],',
+    '  "sceneBoundary": {',
+    '    "level": "none|micro|scene|act",',
     '    "type": "location|time_skip|narrative_shift|resolution|null",',
     '    "description": "brief description of what changed (only if detected)"',
     "  },",
     '  "arcs": [{"id": "existing_id or null", "title": "Arc Title", "status": "active|stalled|resolved|abandoned", "progression": "what changed"}]',
     "}",
     "",
-    "If no facts, use an empty array. If no scene change, set detected to false. If no arcs, use an empty array.",
+    "Boundary levels: micro = minor room/time movement; scene = a major setting or time context; act = a chapter/day/narrative break. Only scene and act are archive-worthy. If no boundary, use level none. If no facts, use an empty array. If no arcs, use an empty array.",
   ].join("\n");
+}
+
+const FACT_SIGNIFICANCE_RANK = Object.freeze({ low: 1, medium: 2, high: 3 });
+
+export function normalizeFactSignificance(value) {
+  const normalized = String(value || '').toLowerCase();
+  return FACT_SIGNIFICANCE_RANK[normalized] ? normalized : 'medium';
+}
+
+export function filterFactsBySignificance(facts, minimum = 'medium') {
+  const threshold = FACT_SIGNIFICANCE_RANK[normalizeFactSignificance(minimum)];
+  return (Array.isArray(facts) ? facts : []).filter((fact) =>
+    FACT_SIGNIFICANCE_RANK[normalizeFactSignificance(fact?.significance)] >= threshold,
+  );
+}
+
+/** Merge only exact-title facts so the batch never invents or rewrites memory. */
+export function consolidateFactBatch(facts) {
+  const grouped = new Map();
+  for (const fact of facts || []) {
+    if (!fact?.title || !fact?.content) continue;
+    const key = String(fact.title).trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!key) continue;
+    const prior = grouped.get(key);
+    if (!prior) {
+      grouped.set(key, { ...fact, keys: [...new Set(fact.keys || [])], significance: normalizeFactSignificance(fact.significance) });
+      continue;
+    }
+    prior.content = [...new Set([String(prior.content).trim(), String(fact.content).trim()])].join(' ').slice(0, 1800);
+    prior.keys = [...new Set([...(prior.keys || []), ...(fact.keys || [])])].slice(0, 8);
+    if (FACT_SIGNIFICANCE_RANK[normalizeFactSignificance(fact.significance)] > FACT_SIGNIFICANCE_RANK[prior.significance]) {
+      prior.significance = normalizeFactSignificance(fact.significance);
+    }
+  }
+  return [...grouped.values()];
+}
+
+function stageFactsForConsolidation(facts, settings) {
+  const state = getProcessorState() || {};
+  const turn = Math.max((getContext().chat?.length || 1) - 1, 0);
+  // Missing means a pre-release/legacy setting object: preserve immediate
+  // persistence until ensureSettings supplies the new default on next load.
+  const configuredTurns = settings.postTurnFactConsolidationTurns;
+  const windowTurns = configuredTurns == null
+    ? 1
+    : Math.min(Math.max(Number(configuredTurns) || 3, 1), 6);
+  const buffered = [...(Array.isArray(state.factBuffer) ? state.factBuffer : []), ...facts].slice(-60);
+  const startTurn = Number.isFinite(state.factBufferStartTurn) ? state.factBufferStartTurn : turn;
+  if (windowTurns > 1 && turn - startTurn + 1 < windowTurns) {
+    setProcessorState({ ...state, factBuffer: buffered, factBufferStartTurn: startTurn });
+    return [];
+  }
+  setProcessorState({ ...state, factBuffer: [], factBufferStartTurn: null });
+  return consolidateFactBatch(buffered);
 }
 
 async function buildTrigramDedupIndex(targetBook) {
@@ -734,11 +790,15 @@ async function persistFactEntry(targetBook, fact, result) {
 }
 
 function applySceneChangeFromParsed(parsed, result) {
-  if (parsed.sceneChange && parsed.sceneChange.detected === true) {
+  const boundary = parsed.sceneBoundary || parsed.sceneChange;
+  if (boundary && (boundary.detected === true || (boundary.level && boundary.level !== 'none'))) {
+    const level = ['micro', 'scene', 'act'].includes(boundary.level) ? boundary.level : 'scene';
     result.sceneChange = {
       detected: true,
-      type: parsed.sceneChange.type || "unknown",
-      description: parsed.sceneChange.description || "",
+      archive: level === 'scene' || level === 'act',
+      level,
+      type: boundary.type || "unknown",
+      description: boundary.description || "",
     };
   }
 }
@@ -796,7 +856,10 @@ async function analyzeExchange(targetBook, recentExcerpt, chatId) {
 
     const dedupIndex = await buildTrigramDedupIndex(targetBook);
 
-    const facts = Array.isArray(parsed.facts) ? parsed.facts : [];
+    const facts = stageFactsForConsolidation(
+      filterFactsBySignificance(parsed.facts, getSettings().postTurnMinimumFactSignificance),
+      getSettings(),
+    );
     for (const fact of facts) {
       if (!fact?.title || !fact?.content) continue;
 
@@ -1550,6 +1613,7 @@ async function rollbackLastPostTurn() {
 
   // Reset processor state so the next run is allowed
   setProcessorState({
+    ...state,
     lastProcessedMsgIdx: Math.max((state?.lastProcessedMsgIdx ?? 0) - 1, -1),
     lastProcessedAt: 0,
     lastResult: null,
