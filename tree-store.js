@@ -396,6 +396,8 @@ export const SETTING_DEFAULTS = {
     continuityMaxActiveArcs: 5,
     smartContextNarrativePhases: true,
     worldStateTemporalAnchoring: true,
+    rpExperienceProfile: 'custom',
+    continuitySemanticFactConsolidation: true,
 };
 
 function ensureSettings() {

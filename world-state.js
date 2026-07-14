@@ -432,6 +432,11 @@ async function buildUpdatePrompt(previousState, recentExcerpt, priorityContext =
         if (priorityContext.factsCreated > 0) {
             ctxLines.push(`${priorityContext.factsCreated} new fact(s) were recorded this turn.`);
         }
+        if (settings.worldStateTemporalAnchoring !== false && priorityContext.temporalAnchor) {
+            const anchor = priorityContext.temporalAnchor;
+            if (anchor.time) ctxLines.push(`Verified response time anchor: ${anchor.time}`);
+            if (anchor.location) ctxLines.push(`Verified response location anchor: ${anchor.location}`);
+        }
         if (ctxLines.length > 1) {
             parts.push(ctxLines.join('\n'), '');
         }

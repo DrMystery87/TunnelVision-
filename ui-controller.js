@@ -246,8 +246,9 @@ export function bindUIEvents() {
     $('#tv_continuity_export_inspection').on('click', onExportContinuityInspection);
     $('#tv_continuity_legacy_preview').on('click', onPreviewLegacyContinuityImport);
     $('#tv_continuity_run_evaluation').on('click', onRunContinuityEvaluation);
+    $('#tv_apply_rp_experience_profile').on('click', onApplyRpExperienceProfile);
     $('#tv_post_turn_min_fact_significance, #tv_post_turn_fact_consolidation_turns, #tv_continuity_max_active_arcs').on('change', onContinuityRpSafeguardChange);
-    $('#tv_retrieval_manifest_dedup, #tv_smart_context_narrative_phases, #tv_world_state_temporal_anchoring').on('change', onContinuityRpSafeguardChange);
+    $('#tv_retrieval_manifest_dedup, #tv_smart_context_narrative_phases, #tv_world_state_temporal_anchoring, #tv_continuity_semantic_fact_consolidation').on('change', onContinuityRpSafeguardChange);
     $('#tv_continuity_drafts').on('click', '.tv-continuity-draft-apply', onApplyContinuityDraft);
     $('#tv_continuity_drafts').on('click', '.tv-continuity-draft-reject', onRejectContinuityDraft);
     $('#tv_continuity_applied').on('click', '.tv-continuity-transaction-undo', onUndoContinuityTransaction);
@@ -1220,10 +1221,44 @@ function onContinuityRpSafeguardChange() {
     settings.retrievalManifestDedup = $('#tv_retrieval_manifest_dedup').prop('checked');
     settings.smartContextNarrativePhases = $('#tv_smart_context_narrative_phases').prop('checked');
     settings.worldStateTemporalAnchoring = $('#tv_world_state_temporal_anchoring').prop('checked');
+    settings.continuitySemanticFactConsolidation = $('#tv_continuity_semantic_fact_consolidation').prop('checked');
+    settings.rpExperienceProfile = 'custom';
     $('#tv_post_turn_min_fact_significance').val(settings.postTurnMinimumFactSignificance);
     $('#tv_post_turn_fact_consolidation_turns').val(settings.postTurnFactConsolidationTurns);
     $('#tv_continuity_max_active_arcs').val(settings.continuityMaxActiveArcs);
     saveSettingsDebounced();
+}
+function onApplyRpExperienceProfile() {
+    const settings = getSettings();
+    const profile = $('#tv_rp_experience_profile').val();
+    const profiles = {
+        deep_character: {
+            searchMode: 'collapsed', mandatoryTools: true, recurseLimit: 3,
+            postTurnEnabled: true, postTurnCooldown: 2, postTurnUpdateTrackers: true, postTurnExtractFacts: true, postTurnSceneArchive: true,
+            sidecarPostGenWriter: false, sidecarAutoRetrieval: false,
+            worldStateEnabled: true, worldStateInterval: 8, smartContextEnabled: true, smartContextLookback: 8,
+            ephemeralResults: true, ephemeralToolFilter: ['TunnelVision_Search'], enableVectorDedup: true, vectorDedupThreshold: 0.65,
+        },
+        sandbox_world: {
+            searchMode: 'collapsed', mandatoryTools: true, recurseLimit: 5,
+            postTurnEnabled: true, postTurnCooldown: 3, postTurnUpdateTrackers: true, postTurnExtractFacts: true, postTurnSceneArchive: true,
+            sidecarPostGenWriter: false, sidecarAutoRetrieval: true,
+            worldStateEnabled: true, worldStateInterval: 5, smartContextEnabled: true, smartContextLookback: 6,
+            ephemeralResults: true, ephemeralToolFilter: ['TunnelVision_Search', 'TunnelVision_Summarize'], enableVectorDedup: true, vectorDedupThreshold: 0.65,
+        },
+        minimal_overhead: {
+            searchMode: 'collapsed', mandatoryTools: false, recurseLimit: 3,
+            postTurnEnabled: true, postTurnCooldown: 4, postTurnUpdateTrackers: true, postTurnExtractFacts: false, postTurnSceneArchive: false,
+            sidecarPostGenWriter: false, sidecarAutoRetrieval: false,
+            worldStateEnabled: false, smartContextEnabled: true, smartContextLookback: 6,
+            ephemeralResults: true, ephemeralToolFilter: ['TunnelVision_Search'], enableVectorDedup: false,
+        },
+    };
+    if (!profiles[profile]) return;
+    Object.assign(settings, profiles[profile], { rpExperienceProfile: profile });
+    refreshUI();
+    saveSettingsDebounced();
+    toastr.success(`${$('#tv_rp_experience_profile option:selected').text()} profile applied.`, 'TunnelVision');
 }
 function onExportContinuityInspection() {
     try { downloadContinuityInspection(); toastr.success('Continuity inspection exported.', 'TunnelVision'); }
@@ -1474,8 +1509,10 @@ function populateConnectionProfiles() {
     $('#tv_continuity_reflections_in_bundle').prop('checked', settings.continuityReflectionsInBundle === true);
     $('#tv_continuity_kill_switch').prop('checked', settings.continuitySafetyKillSwitch === true);
     $('#tv_continuity_evaluation_diagnostics').prop('checked', settings.continuityEvaluationDiagnostics === true);
+    $('#tv_rp_experience_profile').val(['deep_character', 'sandbox_world', 'minimal_overhead'].includes(settings.rpExperienceProfile) ? settings.rpExperienceProfile : 'custom');
     $('#tv_post_turn_min_fact_significance').val(['low', 'medium', 'high'].includes(settings.postTurnMinimumFactSignificance) ? settings.postTurnMinimumFactSignificance : 'medium');
     $('#tv_post_turn_fact_consolidation_turns').val(settings.postTurnFactConsolidationTurns ?? 3);
+    $('#tv_continuity_semantic_fact_consolidation').prop('checked', settings.continuitySemanticFactConsolidation !== false);
     $('#tv_retrieval_manifest_dedup').prop('checked', settings.retrievalManifestDedup !== false);
     $('#tv_smart_context_narrative_phases').prop('checked', settings.smartContextNarrativePhases !== false);
     $('#tv_world_state_temporal_anchoring').prop('checked', settings.worldStateTemporalAnchoring !== false);

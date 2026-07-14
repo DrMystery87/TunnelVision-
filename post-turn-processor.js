@@ -374,6 +374,7 @@ export async function runPostTurnProcessor(force = false) {
         sceneTitle: result.sceneTitle,
         factsCreated: result.factsCreated,
         sceneChangeType: analysisResult?.sceneChange?.type || null,
+        temporalAnchor: analysisResult?.temporalAnchor || null,
       });
     }
 
@@ -640,6 +641,7 @@ function buildPostTurnAnalysisPrompt(
     '    "type": "location|time_skip|narrative_shift|resolution|null",',
     '    "description": "brief description of what changed (only if detected)"',
     "  },",
+    '  "temporalAnchor": {"time": "explicit current time or empty", "location": "explicit current location or empty"},',
     '  "arcs": [{"id": "existing_id or null", "title": "Arc Title", "status": "active|stalled|resolved|abandoned", "progression": "what changed"}]',
     "}",
     "",
@@ -680,6 +682,40 @@ export function consolidateFactBatch(facts) {
     }
   }
   return [...grouped.values()];
+}
+
+async function semanticallyConsolidateFacts(facts, chatId) {
+  const fallback = consolidateFactBatch(facts);
+  if (fallback.length < 2) return fallback;
+
+  const prompt = [
+    'You are consolidating roleplay memory candidates collected across several turns.',
+    'Merge only facts that describe the same persistent subject or event. Never invent, infer, or drop a distinct fact.',
+    'Return a JSON array of objects with title, content, keys, when, and significance.',
+    'Keep separate facts separate when uncertain. Prefer fewer, richer entries only when the evidence clearly overlaps.',
+    '',
+    '[Candidates]',
+    JSON.stringify(fallback),
+  ].join('\n');
+  try {
+    const response = await callWithRetry(
+      () => withWorldInfoAttribution('post-turn', () => generateAnalytical({ prompt })),
+      { label: 'Fact consolidation' },
+    );
+    if (getChatId() !== chatId) return fallback;
+    const parsed = parseJsonFromLLM(response);
+    const merged = Array.isArray(parsed)
+      ? parsed.filter((fact) => fact?.title && fact?.content).map((fact) => ({
+        ...fact,
+        keys: Array.isArray(fact.keys) ? fact.keys.map(String).filter(Boolean).slice(0, 8) : [],
+        significance: normalizeFactSignificance(fact.significance),
+      }))
+      : [];
+    return merged.length > 0 ? merged : fallback;
+  } catch (error) {
+    console.warn('[TunnelVision] Semantic fact consolidation failed; using exact-title merge:', error);
+    return fallback;
+  }
 }
 
 function stageFactsForConsolidation(facts, settings) {
@@ -803,6 +839,14 @@ function applySceneChangeFromParsed(parsed, result) {
   }
 }
 
+function applyTemporalAnchorFromParsed(parsed, result) {
+  const anchor = parsed?.temporalAnchor;
+  if (!anchor || typeof anchor !== 'object') return;
+  const time = typeof anchor.time === 'string' ? anchor.time.trim().slice(0, 80) : '';
+  const location = typeof anchor.location === 'string' ? anchor.location.trim().slice(0, 120) : '';
+  if (time || location) result.temporalAnchor = { time, location };
+}
+
 function applyArcUpdatesFromParsed(parsed, result) {
   if (Array.isArray(parsed.arcs) && parsed.arcs.length > 0) {
     const arcResult = processArcUpdates(parsed.arcs);
@@ -856,10 +900,13 @@ async function analyzeExchange(targetBook, recentExcerpt, chatId) {
 
     const dedupIndex = await buildTrigramDedupIndex(targetBook);
 
-    const facts = stageFactsForConsolidation(
+    let facts = stageFactsForConsolidation(
       filterFactsBySignificance(parsed.facts, getSettings().postTurnMinimumFactSignificance),
       getSettings(),
     );
+    if (facts.length > 1 && getSettings().continuitySemanticFactConsolidation === true) {
+      facts = await semanticallyConsolidateFacts(facts, chatId);
+    }
     for (const fact of facts) {
       if (!fact?.title || !fact?.content) continue;
 
@@ -879,6 +926,7 @@ async function analyzeExchange(targetBook, recentExcerpt, chatId) {
     }
 
     applySceneChangeFromParsed(parsed, result);
+    applyTemporalAnchorFromParsed(parsed, result);
     applyArcUpdatesFromParsed(parsed, result);
   } catch (e) {
     console.error("[TunnelVision] Post-turn analysis LLM call failed:", e);
