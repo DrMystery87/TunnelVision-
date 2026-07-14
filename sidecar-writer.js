@@ -304,7 +304,7 @@ Based on the latest conversation turn, what lorebook operations (if any) should 
  * @param {string} response
  * @returns {{ ops: WriteOp[], reasoning: string }}
  */
-function parseWriteOps(response) {
+export function parseWriteOps(response) {
     if (!response || typeof response !== 'string') return { ops: [], reasoning: '' };
 
     // Try to find JSON object in response
@@ -395,16 +395,20 @@ function parseWriteOps(response) {
 
         if (Array.isArray(parsed.reorganize)) {
             for (const r of parsed.reorganize.slice(0, 3)) {
-                if (!r.action) continue;
+                const action = typeof r.action === 'string' ? r.action.trim() : '';
+                if (!['move', 'create_category'].includes(action)) continue;
                 const uid = r.uid !== undefined ? parseSafeUid(r.uid) : undefined;
-                if (r.action === 'move' && uid === null) continue;
+                const targetNodeId = r.target_node_id ? String(r.target_node_id) : undefined;
+                const title = r.label ? String(r.label).substring(0, 200) : undefined;
+                if (action === 'move' && (uid === null || !targetNodeId)) continue;
+                if (action === 'create_category' && !title) continue;
                 ops.push({
                     type: 'reorganize',
                     lorebook: r.lorebook || '',
-                    action: String(r.action),
+                    action,
                     uid: uid ?? undefined,
-                    target_node_id: r.target_node_id ? String(r.target_node_id) : undefined,
-                    title: r.label ? String(r.label).substring(0, 200) : undefined,
+                    target_node_id: targetNodeId,
+                    title,
                 });
             }
         }
@@ -547,7 +551,8 @@ export async function executeWriteOps(ops, reasoning = '') {
                 result.startsWith('Missing required') ||
                 result.startsWith('Failed to') ||
                 result.includes('not found') ||
-                result.startsWith('No writable')
+                result.startsWith('No writable') ||
+                result.startsWith('Unknown action')
             );
 
             if (isError) {

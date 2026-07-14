@@ -22,6 +22,7 @@ vi.mock('../sidecar-safety.js', () => ({
 }));
 
 import {
+    computeEmbeddings,
     fetchSecretKey,
     getSidecarModelLabel,
     isEmbeddingSupported,
@@ -53,6 +54,10 @@ function selectProfile(profile = {}) {
 describe('Connection Manager sidecar configuration', () => {
     it('reports embeddings as unavailable until a dedicated embedding profile is implemented', () => {
         expect(isEmbeddingSupported()).toBe(false);
+    });
+
+    it('fails explicitly instead of attempting an unsupported embedding request', async () => {
+        await expect(computeEmbeddings(['fact'])).rejects.toThrow('Embeddings are not configured');
     });
 
     it('is unavailable until a selected profile has both provider and model', () => {
@@ -113,5 +118,28 @@ describe('direct sidecar calls', () => {
 
         await expect(sidecarGenerate({ prompt: 'hello' })).rejects.toThrow('Sidecar not configured');
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a provider error after authentication instead of treating it as a successful empty response', async () => {
+        selectProfile();
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce({ ok: true, json: async () => ({ value: 'test-key' }) })
+            .mockResolvedValueOnce({ ok: false, status: 429, text: async () => 'rate limited' });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(sidecarGenerate({ prompt: 'hello' }))
+            .rejects.toThrow('custom API error: 429 - rate limited');
+    });
+
+    it('fails closed after a secrets-store 403 and does not retry secret retrieval', async () => {
+        selectProfile();
+        const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(sidecarGenerate({ prompt: 'hello' })).rejects.toThrow('No API key found');
+        expect(isSidecarKeyAvailable()).toBe(false);
+        expect(isSidecarConfigured()).toBe(false);
+        await expect(fetchSecretKey('ignored-after-403')).resolves.toBeNull();
+        expect(fetchMock).toHaveBeenCalledOnce();
     });
 });

@@ -33,7 +33,7 @@ import { initAutoSummary } from './auto-summary.js';
 import { initPostTurnProcessor } from './post-turn-processor.js';
 import { runSidecarRetrieval } from './sidecar-retrieval.js';
 import { runSidecarWriter } from './sidecar-writer.js';
-import { applyPromptInjectionPlan, buildPromptInjectionPlan } from './prompt-injection-service.js';
+import { applyPromptInjectionPlan, buildPromptInjectionPlan, clearPromptInjectionSlots } from './prompt-injection-service.js';
 import { separateConditions, isEvaluableCondition, formatCondition, EVALUABLE_TYPES, CONDITION_LABELS, getKeywordProbability, setKeywordProbability } from './conditions.js';
 import { loadWorldInfo, saveWorldInfo, world_names } from '../../../world-info.js';
 
@@ -904,7 +904,7 @@ async function onGenerationStarted(type, opts, dryRun) {
     // told "you MUST call a tool" when it already has tool results and should
     // be writing the actual response. Then skip all other heavy work.
     if (isRecursiveToolPass) {
-        setExtensionPrompt(TV_PROMPT_KEY, '', extension_prompt_types.IN_CHAT, 0, false, extension_prompt_roles.SYSTEM);
+        clearPromptInjectionSlots();
         return;
     }
 

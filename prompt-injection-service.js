@@ -413,6 +413,28 @@ export function applyPromptInjectionPlan(payload, deps = {}) {
 }
 
 /**
+ * Removes every prompt slot owned by this service. Recursive tool-call passes
+ * must not retain first-pass context alongside active tool results.
+ *
+ * @param {object} [deps]
+ * @param {Function} [deps.setExtensionPromptImpl]
+ * @param {object} [deps.promptTypes]
+ * @param {object} [deps.promptRoles]
+ */
+export function clearPromptInjectionSlots(deps = {}) {
+    const {
+        setExtensionPromptImpl = setExtensionPrompt,
+        promptTypes = extension_prompt_types,
+        promptRoles = extension_prompt_roles,
+    } = deps;
+    const keys = [TV_PROMPT_KEY, TV_WORLDSTATE_KEY, TV_SMARTCTX_KEY, TV_NOTEBOOK_KEY];
+
+    for (const key of keys) {
+        setExtensionPromptImpl(key, '', promptTypes.IN_CHAT, 0, false, promptRoles.SYSTEM);
+    }
+}
+
+/**
  * @param {object} [deps]
  * @returns {Promise<ReturnType<typeof buildPromptInjectionPlan>>}
  */

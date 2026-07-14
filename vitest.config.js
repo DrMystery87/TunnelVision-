@@ -1,18 +1,23 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+const normalizePath = (value) => path.resolve(value).replace(/\\/g, '/');
+const projectRootPath = normalizePath(projectRoot);
+const localIndexPath = normalizePath(path.join(projectRoot, 'index.js'));
+const testsRootPath = normalizePath(path.join(projectRoot, 'tests'));
 const hostModuleStubs = new Map([
-    ['D:/SillyTavern/TunnelVision/TunnelVision-/index.js', 'tests/stubs/index-test.js'],
-    ['D:/extensions.js', 'tests/stubs/extensions-host.js'],
-    ['D:/script.js', 'tests/stubs/script-host.js'],
-    ['D:/st-context.js', 'tests/stubs/st-context-host.js'],
-    ['D:/tool-calling.js', 'tests/stubs/tool-calling-host.js'],
-    ['D:/group-chats.js', 'tests/stubs/group-chats-host.js'],
-    ['D:/utils.js', 'tests/stubs/utils-host.js'],
-    ['D:/popup.js', 'tests/stubs/popup-host.js'],
-    ['D:/power-user.js', 'tests/stubs/power-user-host.js'],
-    ['D:/chats.js', 'tests/stubs/chats-host.js'],
-    ['D:/world-info.js', 'tests/stubs/world-info-host.js'],
+    ['extensions.js', 'tests/stubs/extensions-host.js'],
+    ['script.js', 'tests/stubs/script-host.js'],
+    ['st-context.js', 'tests/stubs/st-context-host.js'],
+    ['tool-calling.js', 'tests/stubs/tool-calling-host.js'],
+    ['group-chats.js', 'tests/stubs/group-chats-host.js'],
+    ['utils.js', 'tests/stubs/utils-host.js'],
+    ['popup.js', 'tests/stubs/popup-host.js'],
+    ['power-user.js', 'tests/stubs/power-user-host.js'],
+    ['chats.js', 'tests/stubs/chats-host.js'],
+    ['world-info.js', 'tests/stubs/world-info-host.js'],
 ]);
 
 export default defineConfig({
@@ -24,8 +29,19 @@ export default defineConfig({
         enforce: 'pre',
         resolveId(source, importer) {
             if (!importer || !source.startsWith('.')) return null;
-            const resolved = path.resolve(path.dirname(importer), source).replace(/\\/g, '/');
-            const stub = hostModuleStubs.get(resolved);
+            const importerPath = normalizePath(importer);
+            const resolved = normalizePath(path.resolve(path.dirname(importer), source));
+            const resolvedParent = normalizePath(path.dirname(resolved));
+            const resolvedRoot = normalizePath(path.parse(resolved).root);
+            if (
+                (importerPath === testsRootPath || importerPath.startsWith(`${testsRootPath}/`))
+                && resolvedParent !== resolvedRoot
+            ) return null;
+            if (resolved === localIndexPath) {
+                return path.resolve('tests/stubs/index-test.js');
+            }
+            if (resolved === projectRootPath || resolved.startsWith(`${projectRootPath}/`)) return null;
+            const stub = hostModuleStubs.get(path.basename(resolved));
             return stub ? path.resolve(stub) : null;
         },
     }],

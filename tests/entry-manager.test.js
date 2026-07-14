@@ -22,8 +22,11 @@ import {
     assertEntryUid,
     buildSummaryKeys,
     buildUidMap,
+    escapeHtml,
     findEntryByUid,
     getEntryTemporal,
+    getEntrySupersedes,
+    getEntryTurnIndex,
     getEntryVersions,
     getTurnEntryCount,
     incrementTurnEntryCount,
@@ -31,6 +34,8 @@ import {
     recordEntryTemporal,
     recordEntryVersion,
     resetTurnEntryCount,
+    setEntrySupersedes,
+    setEntryTurnIndex,
 } from '../entry-manager.js';
 
 beforeEach(() => {
@@ -66,6 +71,11 @@ describe('LLM output and entry metadata helpers', () => {
         expect(parseJsonFromLLM('not JSON')).toBeNull();
     });
 
+    it('rejects malformed JSON instead of attempting heuristic repair', () => {
+        expect(parseJsonFromLLM('{"title":"Fact",}')).toBeNull();
+        expect(parseJsonFromLLM('[1, 2,]', { type: 'array' })).toBeNull();
+    });
+
     it('retains temporal and bounded version history by book and UID', () => {
         recordEntryTemporal('Book', 1, { source: 'tool', turnIndex: 7 });
         expect(getEntryTemporal('Book', 1)).toMatchObject({ source: 'tool', turnIndex: 7 });
@@ -93,5 +103,15 @@ describe('LLM output and entry metadata helpers', () => {
             ['Alice', 'Alice'],
             'major',
         )).toEqual(['Alice', 'Alliance', 'Day 4', 'major']);
+    });
+
+    it('keeps turn and supersession metadata book-qualified and escapes display text', () => {
+        setEntryTurnIndex('Book A', 1, 9);
+        setEntrySupersedes('Book A', 1, 0);
+
+        expect(getEntryTurnIndex('Book A', 1)).toBe(9);
+        expect(getEntryTurnIndex('Book B', 1)).toBe(-1);
+        expect(getEntrySupersedes('Book A', 1)).toBe(0);
+        expect(escapeHtml('<script>"&\'')).toBe('&lt;script&gt;&quot;&amp;&#39;');
     });
 });

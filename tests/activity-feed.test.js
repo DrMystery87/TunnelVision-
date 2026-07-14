@@ -97,4 +97,21 @@ describe('activity feed public API', () => {
             { verb: 'Conditional Rejected', summary: '"Castle rule" [mood:tense]' },
         ]);
     });
+
+    it('clears recorded feed items without retaining an in-memory copy', () => {
+        logToolCallStarted('TunnelVision_Remember', { title: 'Transient fact' });
+        clearFeed();
+
+        expect(getFeedItems()).toEqual([]);
+    });
+
+    it('uses safe fallbacks for retrievals and conditional entries with missing labels', () => {
+        logSidecarRetrieval({ nodeIds: [], nodeLabels: [] });
+        logConditionalEvaluations([{ uid: 9, accepted: false, reason: 'not enough context' }], []);
+
+        expect(getFeedItems()).toMatchObject([
+            { verb: 'Conditional Rejected', summary: '"Entry #9" ' },
+            { verb: 'Sidecar Retrieved', summary: '' },
+        ]);
+    });
 });

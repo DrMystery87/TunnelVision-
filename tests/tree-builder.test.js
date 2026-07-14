@@ -76,6 +76,29 @@ describe('buildTreeFromMetadata', () => {
         expect(tree.root.children).toMatchObject([{ label: 'Uncategorized', entryUids: [5] }]);
     });
 
+    it('persists an empty tree for a valid lorebook with no entries', async () => {
+        state.bookData = { entries: {} };
+
+        const tree = await buildTreeFromMetadata('Campaign');
+
+        expect(tree.root.children).toEqual([]);
+        expect(state.saved).toEqual([{ lorebookName: 'Campaign', tree }]);
+    });
+
+    it('groups more than twenty ungrouped primary keys into General', async () => {
+        state.bookData = {
+            entries: Object.fromEntries(Array.from({ length: 21 }, (_, index) => [
+                `entry-${index}`,
+                { uid: index + 1, key: [`Key ${index + 1}`] },
+            ])),
+        };
+
+        const tree = await buildTreeFromMetadata('Campaign');
+
+        expect(tree.root.children).toMatchObject([{ label: 'General' }]);
+        expect(tree.root.children[0].entryUids).toEqual(Array.from({ length: 21 }, (_, index) => index + 1));
+    });
+
     it('rejects missing lorebooks rather than persisting an empty tree', async () => {
         await expect(buildTreeFromMetadata('Missing')).rejects.toThrow('not found or has no entries');
         expect(state.saved).toEqual([]);

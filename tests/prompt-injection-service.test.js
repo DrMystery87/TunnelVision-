@@ -67,6 +67,7 @@ vi.mock('../../../../script.js', () => ({
 import {
     buildPromptInjectionPlan,
     applyPromptInjectionPlan,
+    clearPromptInjectionSlots,
     mapPositionSetting,
     mapRoleSetting,
     TV_PROMPT_KEY,
@@ -444,6 +445,16 @@ describe('buildPromptInjectionPlan sync behavior', () => {
 });
 
 describe('applyPromptInjectionPlan', () => {
+    it('clears every service-owned slot for a recursive tool pass', () => {
+        clearPromptInjectionSlots();
+
+        expect(setExtensionPrompt).toHaveBeenCalledTimes(4);
+        expect(setExtensionPrompt).toHaveBeenNthCalledWith(1, TV_PROMPT_KEY, '', 'IN_CHAT', 0, false, 'SYSTEM');
+        expect(setExtensionPrompt).toHaveBeenNthCalledWith(2, TV_WORLDSTATE_KEY, '', 'IN_CHAT', 0, false, 'SYSTEM');
+        expect(setExtensionPrompt).toHaveBeenNthCalledWith(3, TV_SMARTCTX_KEY, '', 'IN_CHAT', 0, false, 'SYSTEM');
+        expect(setExtensionPrompt).toHaveBeenNthCalledWith(4, TV_NOTEBOOK_KEY, '', 'IN_CHAT', 0, false, 'SYSTEM');
+    });
+
     it('applies all prompts via setExtensionPrompt and records sizes', async () => {
         mockState.settings = makeSettings({
             worldStateEnabled: true,
