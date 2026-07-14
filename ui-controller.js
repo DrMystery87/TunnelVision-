@@ -263,6 +263,16 @@ export function bindUIEvents() {
     $('#tv_book_permission').on('change', onBookPermissionChange);
     $('#tv_book_injection_mode').on('change', onBookInjectionModeChange);
 
+    // Use delegated binding so the control remains reliable if ST refreshes the settings DOM.
+    $(document)
+        .off('click.tvContinuity', '#tv_continuity_header')
+        .on('click.tvContinuity', '#tv_continuity_header', function () {
+            const $header = $(this);
+            const expanded = $header.attr('aria-expanded') === 'true';
+            $header.attr('aria-expanded', String(!expanded)).toggleClass('expanded', !expanded);
+            $('#tv_continuity_body').stop(true, true).slideToggle(200);
+        });
+
     // Backup & Restore collapsible header
     $('#tv_backup_header').on('click', function () {
         $(this).toggleClass('expanded');

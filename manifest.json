@@ -6,6 +6,6 @@
     "js": "index.js",
     "css": "style.css",
     "author": "Coneja-Chibi",
-    "version": "0.2.5",
+    "version": "0.2.6",
     "description": "Reasoning-based lorebook retrieval using hierarchical tree indexing. Replaces keyword triggers with LLM-driven contextual search via tool calls."
 }

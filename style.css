@@ -161,22 +161,11 @@
     transform: rotate(180deg);
 }
 
-#tv_continuity_toggle {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-}
-
-#tv_continuity_card > .tv-card-body {
-    display: none;
-}
-
-#tv_continuity_toggle:checked + #tv_continuity_header .tv-collapse-icon {
-    transform: rotate(180deg);
-}
-
-#tv_continuity_toggle:checked ~ #tv_continuity_body {
-    display: block;
+button.tv-card-header {
+    width: 100%;
+    border: 0;
+    text-align: left;
+    font-family: inherit;
 }
 
 .tv-card-body {
