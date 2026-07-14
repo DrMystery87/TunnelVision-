@@ -161,16 +161,22 @@
     transform: rotate(180deg);
 }
 
-#tv_continuity_card > summary {
-    list-style: none;
+#tv_continuity_toggle {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
 }
 
-#tv_continuity_card > summary::-webkit-details-marker {
+#tv_continuity_card > .tv-card-body {
     display: none;
 }
 
-#tv_continuity_card[open] .tv-collapse-icon {
+#tv_continuity_toggle:checked + #tv_continuity_header .tv-collapse-icon {
     transform: rotate(180deg);
+}
+
+#tv_continuity_toggle:checked ~ #tv_continuity_body {
+    display: block;
 }
 
 .tv-card-body {
