@@ -367,12 +367,15 @@ export const SETTING_DEFAULTS = {
     targetLanguage: '',
     // Compact tool prompts: register one guide tool + one-liner descriptions to save tokens
     compactToolPrompts: true,
-    // Unified continuity-engine rollout. Phase 2 exposes shadow mode only;
-    // it validates revisions without changing prompts or lorebooks.
+    // Unified continuity-engine rollout. Unified uses a single local prompt
+    // bundle plus revision-bound provisional journal records.
     continuityEngineMode: 'legacy',
+    continuityPolicyRevision: 0,
     continuityShadowDiagnostics: false,
+    unifiedProjectAcceptedFacts: false,
     contextBundleMode: 'off',
     contextBundleMaxChars: 8000,
+    contextBundleDeadlineMs: 75,
     contextBundleDiagnostics: false,
     continuityAnalyzerMode: 'off',
     continuityAnalyzerMaxChanges: 5,

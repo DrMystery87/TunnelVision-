@@ -24,7 +24,7 @@ export function evaluateShadowReplay(fixtures, { stateMode = 'off' } = {}) {
     };
 }
 
-export function runCurrentChatShadowEvaluation({ context = getContext(), settings = getSettings(), buildBundle = buildContextBundle, now = () => Date.now() } = {}) {
+export async function runCurrentChatShadowEvaluation({ context = getContext(), settings = getSettings(), buildBundle = buildContextBundle, now = () => Date.now() } = {}) {
     const drafts = [...(context?.chatMetadata?.tunnelvision_continuity_drafts || [])];
     const fixtures = drafts.map(draft => ({
         id: draft.id,
@@ -33,7 +33,7 @@ export function runCurrentChatShadowEvaluation({ context = getContext(), setting
         maxChanges: 10,
     }));
     const replay = evaluateShadowReplay(fixtures, { stateMode: settings.continuityStateMode });
-    const bundle = buildBundle({ settings });
+    const bundle = await buildBundle({ settings });
     const report = {
         schemaVersion: 1,
         generatedAt: now(),

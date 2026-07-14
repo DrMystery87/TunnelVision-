@@ -1,9 +1,9 @@
 /**
  * Revision-bound turn coordination for the unified continuity engine.
  *
- * Phase 2 exposes shadow mode only: it validates the exact source response
- * lifecycle without changing prompts or lorebooks. The journal and adapters
- * will attach to this coordinator in unified mode after replay coverage lands.
+ * Shadow mode validates the lifecycle without changing prompts or lorebooks.
+ * Unified mode uses the same snapshots as the authority for every asynchronous
+ * result, journal transaction, acceptance decision, and compensating rollback.
  */
 import { getContext } from '../../../st-context.js';
 import { getSettings } from './tree-store.js';
@@ -24,6 +24,10 @@ function messageFingerprint(message) {
     return `${text.length}:${hash >>> 0}`;
 }
 
+function messageRevision(message) {
+    return `${messageFingerprint(message)}:${Number(message?.swipe_id ?? message?.extra?.swipe_id ?? 0)}`;
+}
+
 export function createTurnCoordinator({
     getContextImpl = getContext,
     getSettingsImpl = getSettings,
@@ -37,7 +41,8 @@ export function createTurnCoordinator({
     };
 
     function begin({ type = 'normal', dryRun = false } = {}) {
-        if (dryRun || getSettingsImpl().continuityEngineMode !== 'shadow') return null;
+        const mode = getSettingsImpl().continuityEngineMode;
+        if (dryRun || !['shadow', 'unified'].includes(mode)) return null;
         const context = getContextImpl();
         const chat = context?.chat || [];
         const chatId = context?.chatId;
@@ -45,12 +50,16 @@ export function createTurnCoordinator({
         const sourceMessageIndex = chat.length - 1;
         const sourceMessage = chat[sourceMessageIndex];
         const snapshot = {
-            generationId: `shadow_${now()}_${++nextId}`,
+            generationId: `${mode}_${now()}_${++nextId}`,
             chatId,
+            mode,
             generationType: type,
             sourceMessageIndex,
             sourceFingerprint: messageFingerprint(sourceMessage),
+            sourceRevision: messageRevision(sourceMessage),
             sourceRole: sourceMessage?.is_user ? 'user' : sourceMessage?.is_system ? 'system' : 'assistant',
+            chatLength: chat.length,
+            policyRevision: Number(getSettingsImpl().continuityPolicyRevision || 0),
             startedAt: now(),
             status: 'generating',
         };
@@ -65,14 +74,16 @@ export function createTurnCoordinator({
         if (!snapshot || snapshot.status !== 'generating') return { accepted: false, reason: 'no-active-turn' };
         const chat = context?.chat || [];
         const source = chat[snapshot.sourceMessageIndex];
-        if (!source || messageFingerprint(source) !== snapshot.sourceFingerprint) {
+        const responseMessageIndex = Number.isInteger(messageId) ? messageId : chat.length - 1;
+        const continuation = snapshot.generationType === 'continue' || type === 'continue';
+        const appendsExistingResponse = continuation && responseMessageIndex === snapshot.sourceMessageIndex;
+        if (!source || (!appendsExistingResponse && messageRevision(source) !== snapshot.sourceRevision)) {
             snapshot.status = 'stale';
             turns.delete(snapshot.chatId);
             diagnostic({ kind: 'stale', snapshot, reason: 'source-revision-changed' });
             return { accepted: false, reason: 'source-revision-changed' };
         }
-        const responseMessageIndex = Number.isInteger(messageId) ? messageId : chat.length - 1;
-        if (responseMessageIndex <= snapshot.sourceMessageIndex || !chat[responseMessageIndex]) {
+        if ((!appendsExistingResponse && responseMessageIndex <= snapshot.sourceMessageIndex) || !chat[responseMessageIndex]) {
             snapshot.status = 'stale';
             turns.delete(snapshot.chatId);
             diagnostic({ kind: 'stale', snapshot, reason: 'response-missing' });
@@ -81,6 +92,8 @@ export function createTurnCoordinator({
         snapshot.status = 'completed';
         snapshot.responseMessageIndex = responseMessageIndex;
         snapshot.responseFingerprint = messageFingerprint(chat[responseMessageIndex]);
+        snapshot.responseRevision = messageRevision(chat[responseMessageIndex]);
+        snapshot.continuationOf = appendsExistingResponse ? snapshot.sourceRevision : null;
         snapshot.completedAt = now();
         snapshot.responseType = type;
         turns.delete(snapshot.chatId);
@@ -101,7 +114,37 @@ export function createTurnCoordinator({
         return [...turns.keys()].filter(chatId => cancel(chatId, reason)).length;
     }
 
-    return { begin, complete, cancel, cancelAll };
+    function getActive(chatId = getContextImpl()?.chatId) {
+        const snapshot = chatId ? turns.get(chatId) : null;
+        return snapshot ? { ...snapshot } : null;
+    }
+
+    /** Verify a deferred result still belongs to the exact response it was derived from. */
+    function isCurrent(snapshot) {
+        if (!snapshot?.chatId || snapshot.policyRevision !== Number(getSettingsImpl().continuityPolicyRevision || 0)) return false;
+        const context = getContextImpl();
+        if (context?.chatId !== snapshot.chatId) return false;
+        const chat = context?.chat || [];
+        const source = chat[snapshot.sourceMessageIndex];
+        const response = chat[snapshot.responseMessageIndex];
+        if (snapshot.continuationOf) return messageRevision(response) === snapshot.responseRevision;
+        return messageRevision(source) === snapshot.sourceRevision && messageRevision(response) === snapshot.responseRevision;
+    }
+
+    /** Rebind a completed group batch to its final speaker response after settle. */
+    function refreshResponse(snapshot, messageId = getContextImpl()?.chat?.length - 1) {
+        if (!snapshot?.chatId) return null;
+        const context = getContextImpl();
+        const chat = context?.chat || [];
+        const source = chat[snapshot.sourceMessageIndex];
+        const response = chat[messageId];
+        if (context?.chatId !== snapshot.chatId || !source || !response || messageId <= snapshot.sourceMessageIndex) return null;
+        if (!snapshot.continuationOf && messageRevision(source) !== snapshot.sourceRevision) return null;
+        const refreshed = { ...snapshot, responseMessageIndex: messageId, responseFingerprint: messageFingerprint(response), responseRevision: messageRevision(response) };
+        return refreshed;
+    }
+
+    return { begin, complete, cancel, cancelAll, getActive, isCurrent, refreshResponse };
 }
 
 const coordinator = createTurnCoordinator({
@@ -121,3 +164,5 @@ export function beginContinuityTurn(options) { return coordinator.begin(options)
 export function completeContinuityTurn(options) { return coordinator.complete(options); }
 export function cancelContinuityTurn(reason) { return coordinator.cancel(undefined, reason); }
 export function cancelAllContinuityTurns(reason) { return coordinator.cancelAll(reason); }
+export function isContinuitySnapshotCurrent(snapshot) { return coordinator.isCurrent(snapshot); }
+export function refreshContinuityResponse(snapshot, messageId) { return coordinator.refreshResponse(snapshot, messageId); }

@@ -1685,6 +1685,9 @@ async function rollbackLastPostTurn() {
 
 function onAiMessageReceived() {
   const settings = getSettings();
+  // Unified Turn Engine owns post-response analysis and persistence. Legacy
+  // subscribers must remain silent even if migrated settings are still on.
+  if (settings.continuityEngineMode === 'unified') return;
   if (!settings.postTurnEnabled || settings.globalEnabled === false) return;
 
   const chatId = getChatId();

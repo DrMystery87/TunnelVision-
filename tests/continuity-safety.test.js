@@ -5,9 +5,9 @@ import { previewLegacyContinuityImport } from '../legacy-continuity-import.js';
 import { isContinuityPaused } from '../continuity-safety.js';
 
 describe('continuity rollout safeguards', () => {
-    it('pauses only the unified continuity pipeline', () => {
+    it('pauses only the unified continuity pipeline', async () => {
         expect(isContinuityPaused({ continuitySafetyKillSwitch: true })).toBe(true);
-        const bundle = buildContextBundle({ settings: { continuitySafetyKillSwitch: true } });
+        const bundle = await buildContextBundle({ settings: { continuitySafetyKillSwitch: true } });
         expect(bundle).toMatchObject({ text: '', paused: true });
     });
 

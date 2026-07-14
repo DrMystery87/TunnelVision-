@@ -42,4 +42,16 @@ describe('turn coordinator shadow mode', () => {
         const { coordinator } = createHarness('legacy');
         expect(coordinator.begin({ type: 'normal' })).toBeNull();
     });
+
+    it('treats appended Continue text as one revised assistant response batch', () => {
+        const { context, coordinator } = createHarness('unified');
+        context.chat[0] = { is_user: false, mes: 'At the harbor' };
+        const snapshot = coordinator.begin({ type: 'continue' });
+        context.chat[0].mes = 'At the harbor, beside the lantern.';
+
+        const result = coordinator.complete({ messageId: 0, type: 'continue' });
+        expect(result.accepted).toBe(true);
+        expect(result.snapshot.continuationOf).toBe(snapshot.sourceRevision);
+        expect(coordinator.isCurrent(result.snapshot)).toBe(true);
+    });
 });

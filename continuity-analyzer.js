@@ -5,7 +5,8 @@ import { parseJsonFromLLM } from './entry-manager.js';
 import { addBackgroundEvent } from './background-events.js';
 import { createWriteJournal } from './write-journal.js';
 import { createEntry, forgetEntry } from './entry-manager.js';
-import { canWriteBook, getSelectedLorebook } from './tree-store.js';
+import { getSelectedLorebook } from './tree-store.js';
+import { getBookPolicy } from './book-policy.js';
 import { applyContinuityStatePatch, getContinuityState, setContinuityState, validateContinuityStatePatch } from './continuity-state.js';
 import { scheduleContinuityMaintenance } from './continuity-maintenance.js';
 import { isContinuityPaused } from './continuity-safety.js';
@@ -41,7 +42,7 @@ export async function approveContinuityDraft(draftId, { bookName = getSelectedLo
     const settings = getSettings();
     const validation = validateContinuityPatch(draft.patch, { assistantText, maxChanges: 10, stateMode: settings.continuityStateMode });
     if (!validation.valid) throw new Error(`Draft is stale: ${validation.errors.join(', ')}`);
-    if (validation.patch.changes.length > 0 && (!bookName || !canWriteBook(bookName))) throw new Error('Select a writable lorebook before applying this draft.');
+    if (validation.patch.changes.length > 0 && (!bookName || !getBookPolicy(bookName).canWrite)) throw new Error('Select a writable lorebook before applying this draft.');
 
     const journal = createWriteJournal();
     const operations = validation.patch.changes.map(change => ({ type: 'lorebook', change }));
@@ -132,10 +133,15 @@ export function validateContinuityPatch(raw, { assistantText = '', maxChanges = 
     return { valid: true, patch: { schemaVersion: 1, changes, ...(state ? { state } : {}) } };
 }
 
-export async function analyzeContinuityTurn({ messageId = null } = {}) {
+/**
+ * Produce one evidence-linked patch. `force` is reserved for the Unified Turn
+ * Engine, which owns persistence itself; legacy/shadow callers retain the
+ * review-draft behavior.
+ */
+export async function analyzeContinuityTurn({ messageId = null, force = false, saveDraft = true } = {}) {
     const settings = getSettings();
     if (isContinuityPaused(settings)) return null;
-    if (!['shadow', 'drafts'].includes(settings.continuityAnalyzerMode)) return null;
+    if (!force && !['shadow', 'drafts'].includes(settings.continuityAnalyzerMode)) return null;
     const context = getContext();
     const chat = context.chat || [];
     const index = Number.isInteger(messageId) ? messageId : chat.length - 1;
@@ -153,12 +159,13 @@ export async function analyzeContinuityTurn({ messageId = null } = {}) {
         addBackgroundEvent({ icon: 'fa-triangle-exclamation', verb: 'Continuity analysis rejected', color: '#fdcb6e', summary: result.errors.join(', ') });
         return result;
     }
-    if (settings.continuityAnalyzerMode === 'drafts' && context.chatMetadata) {
+    if (saveDraft && settings.continuityAnalyzerMode === 'drafts' && context.chatMetadata) {
         const drafts = context.chatMetadata[META_KEY] || [];
         drafts.push({ id: `patch_${Date.now()}`, messageId: index, patch: result.patch, createdAt: Date.now() });
         context.chatMetadata[META_KEY] = drafts.slice(-20);
         context.saveMetadataDebounced?.();
     }
-    addBackgroundEvent({ icon: 'fa-wand-magic-sparkles', verb: 'Continuity analysis', color: '#6c5ce7', summary: `${result.patch.changes.length} validated change(s)${settings.continuityAnalyzerMode === 'drafts' ? ' saved as draft' : ' (shadow)'}` });
+    const destination = force ? ' prepared for unified commit' : settings.continuityAnalyzerMode === 'drafts' ? ' saved as draft' : ' (shadow)';
+    addBackgroundEvent({ icon: 'fa-wand-magic-sparkles', verb: 'Continuity analysis', color: '#6c5ce7', summary: `${result.patch.changes.length} validated change(s)${destination}` });
     return result;
 }

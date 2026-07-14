@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { buildContextBundle } from '../context-bundle.js';
 
 describe('context bundle', () => {
-    it('combines local continuity sources within one hard cap and records a manifest', () => {
-        const bundle = buildContextBundle({
+    it('combines local continuity sources within one hard cap and records a manifest', async () => {
+        const bundle = await buildContextBundle({
             settings: { worldStateEnabled: true, smartContextEnabled: true, notebookEnabled: true, contextBundleMaxChars: 100 },
             buildWorldStatePromptImpl: () => 'WORLD',
             buildSmartContextPromptImpl: () => 'SMART',
@@ -14,8 +14,8 @@ describe('context bundle', () => {
         expect(bundle.manifest.map(item => item.source)).toEqual(['world-state', 'smart-context', 'notebook']);
     });
 
-    it('truncates low-priority content rather than exceeding the configured cap', () => {
-        const bundle = buildContextBundle({
+    it('truncates low-priority content rather than exceeding the configured cap', async () => {
+        const bundle = await buildContextBundle({
             settings: { worldStateEnabled: true, smartContextEnabled: true, notebookEnabled: false, contextBundleMaxChars: 500 },
             buildWorldStatePromptImpl: () => 'W'.repeat(300),
             buildSmartContextPromptImpl: () => 'S'.repeat(450),
@@ -25,8 +25,8 @@ describe('context bundle', () => {
         expect(bundle.manifest.some(item => item.truncated)).toBe(true);
     });
 
-    it('places approved typed continuity ahead of retrieved and notebook context', () => {
-        const bundle = buildContextBundle({
+    it('places approved typed continuity ahead of retrieved and notebook context', async () => {
+        const bundle = await buildContextBundle({
             settings: { worldStateEnabled: true, smartContextEnabled: true, notebookEnabled: true, contextBundleMaxChars: 500, continuityStateMode: 'drafts', continuityStateInBundle: true },
             buildWorldStatePromptImpl: () => 'WORLD',
             buildContinuityStatePromptImpl: () => 'STATE',

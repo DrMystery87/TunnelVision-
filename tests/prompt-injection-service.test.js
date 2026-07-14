@@ -74,6 +74,7 @@ import {
     TV_WORLDSTATE_KEY,
     TV_SMARTCTX_KEY,
     TV_NOTEBOOK_KEY,
+    TV_CONTEXTBUNDLE_KEY,
 } from '../prompt-injection-service.js';
 import { setExtensionPrompt } from '../../../../script.js';
 
@@ -169,6 +170,38 @@ describe('buildPromptInjectionPlan', () => {
         });
 
         expect(plan.prompts.mandatory).toBe('');
+    });
+
+    it('uses exactly one non-empty extension context slot in unified mode', async () => {
+        mockState.settings = makeSettings({
+            continuityEngineMode: 'unified',
+            contextBundleMode: 'off',
+            worldStateEnabled: true,
+            smartContextEnabled: true,
+            notebookEnabled: true,
+        });
+        mockState.activeBooks = ['Book A'];
+        const plan = await buildPromptInjectionPlan({
+            isRecursiveToolPassImpl: () => false,
+            buildContextBundleImpl: async () => ({ text: '[Unified bundle]', manifest: [{ source: 'local' }] }),
+        });
+        expect(plan.prompts).toMatchObject({
+            mandatory: '', worldState: '', smartContext: '', notebook: '', continuityBundle: '[Unified bundle]',
+        });
+        applyPromptInjectionPlan(plan);
+        const nonEmpty = setExtensionPrompt.mock.calls.filter(([, text]) => text).map(([key]) => key);
+        expect(nonEmpty).toEqual([TV_CONTEXTBUNDLE_KEY]);
+    });
+
+    it('preserves raw tool-result episodes in unified mode', async () => {
+        const stripOldToolResultsImpl = vi.fn();
+        mockState.settings = makeSettings({ continuityEngineMode: 'unified', ephemeralResults: true });
+        await buildPromptInjectionPlan({
+            isRecursiveToolPassImpl: () => false,
+            buildContextBundleImpl: async () => ({ text: '', manifest: [] }),
+            stripOldToolResultsImpl,
+        });
+        expect(stripOldToolResultsImpl).not.toHaveBeenCalled();
     });
 
     it('does not build mandatory prompt when no active books exist', async () => {
@@ -344,6 +377,7 @@ twenty`;
             worldState: 'WORLD',
             smartContext: '',
             notebook: 'NOTE',
+            continuityBundle: '',
         });
         expect(plan.prompts.mandatory.length).toBeGreaterThan(0);
         expect(mockState.injectionSizes).toEqual({
@@ -351,6 +385,7 @@ twenty`;
             worldState: 5,
             smartContext: 0,
             notebook: 4,
+            continuityBundle: 0,
         });
     });
 
@@ -489,12 +524,14 @@ describe('applyPromptInjectionPlan', () => {
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(2, TV_WORLDSTATE_KEY, 'WORLD', 'IN_CHAT', 2, false, 'ASSISTANT');
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(3, TV_SMARTCTX_KEY, 'SMART', 'IN_PROMPT', 7, false, 'SYSTEM');
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(4, TV_NOTEBOOK_KEY, 'NOTE', 'IN_CHAT', 4, false, 'ASSISTANT');
+        expect(setExtensionPrompt).toHaveBeenNthCalledWith(5, TV_CONTEXTBUNDLE_KEY, '', 'IN_CHAT', 2, false, 'ASSISTANT');
 
         expect(mockState.injectionSizes).toEqual({
             mandatory: 'MANDATORY'.length,
             worldState: 'WORLD'.length,
             smartContext: 'SMART'.length,
             notebook: 'NOTE'.length,
+            continuityBundle: 0,
         });
     });
 
@@ -512,11 +549,13 @@ describe('applyPromptInjectionPlan', () => {
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(2, TV_WORLDSTATE_KEY, '', 'IN_CHAT', 2, false, 'SYSTEM');
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(3, TV_SMARTCTX_KEY, '', 'IN_CHAT', 3, false, 'SYSTEM');
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(4, TV_NOTEBOOK_KEY, '', 'IN_CHAT', 1, false, 'SYSTEM');
+        expect(setExtensionPrompt).toHaveBeenNthCalledWith(5, TV_CONTEXTBUNDLE_KEY, '', 'IN_CHAT', 2, false, 'SYSTEM');
         expect(mockState.injectionSizes).toEqual({
             mandatory: 0,
             worldState: 0,
             smartContext: 0,
             notebook: 0,
+            continuityBundle: 0,
         });
     });
 });

@@ -11,6 +11,20 @@
 
 ---
 
+## v0.4.0 — Unified Turn Engine
+
+Optional **Unified** continuity mode now uses one local, bounded context slot and a revision-bound journal:
+
+- no pre-generation sidecar retrieval or competing legacy auto-writers;
+- assistant-derived patches stay provisional until the next user turn;
+- swipe, regenerate, edit, chat switch, and interrupted writes are rejected or compensated;
+- accepted claims retain source provenance and can be manually imported from legacy World Info without altering it;
+- World Info projection is opt-in and restricted to writable managed books.
+
+Use **Continuity → Unified engine**. Keep “Project accepted facts” off unless you explicitly want compatibility entries created in the selected lorebook.
+
+---
+
 ### 💡 The Core Thesis
 
 > **When an AI has to make the active effort to retrieve information, to decide what it needs, go find it, and bring it back, it uses that information better.**

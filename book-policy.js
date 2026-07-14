@@ -4,7 +4,7 @@
  * Keep permission and injection semantics in one place so retrieval, tools,
  * post-turn automation, and maintenance do not silently disagree.
  */
-import { canReadBook, canWriteBook, getBookInjectionMode, getBookPermission } from './tree-store.js';
+import { canReadBook, canWriteBook, getBookInjectionMode, getBookPermission, getSettings } from './tree-store.js';
 
 /**
  * Return the current policy for one book. Callers still decide whether the
@@ -14,6 +14,7 @@ import { canReadBook, canWriteBook, getBookInjectionMode, getBookPermission } fr
  * @returns {{bookName: string, permission: string, injectionMode: string, canRead: boolean, canWrite: boolean, canInject: boolean, canMaintain: boolean, reason: string}}
  */
 export function getBookPolicy(bookName) {
+    const settings = getSettings();
     const permission = getBookPermission(bookName);
     const injectionMode = getBookInjectionMode(bookName);
     const readable = canReadBook(bookName);
@@ -21,7 +22,9 @@ export function getBookPolicy(bookName) {
     const native = injectionMode === 'native';
 
     return {
+        bookId: bookName,
         bookName,
+        ownership: native ? 'host' : writable ? 'managed' : 'protected',
         permission,
         injectionMode,
         canRead: readable,
@@ -30,6 +33,7 @@ export function getBookPolicy(bookName) {
         // Automated maintenance must not mutate a host-native book. Explicit
         // user/tool writes retain the existing write permission behavior.
         canMaintain: readable && writable && !native,
+        policyRevision: Number(settings.continuityPolicyRevision || 0),
         reason: !readable && !writable
             ? 'Book access is denied.'
             : !readable

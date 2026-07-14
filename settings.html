@@ -6,7 +6,7 @@
                 <span class="tv-header-title">TunnelVision</span>
                 <span class="tv-header-subtitle">Reasoning-based lorebook retrieval</span>
             </div>
-            <div class="tv-header-badge">v0.3.1</div>
+            <div class="tv-header-badge">v0.4.0</div>
             <div class="tv-header-chevron"><i class="fa-solid fa-chevron-down"></i></div>
         </div>
         <div class="tv-settings-body" style="display:none;">
@@ -911,7 +911,7 @@
                     </summary>
                     <div class="tv-card-body" id="tv_continuity_body">
                         <div class="tv-help-text" style="margin-bottom: 8px;">
-                            Optional, review-gated continuity tools. All modes default to off or non-writing validation.
+                            Revision-bound continuity controls. Unified mode uses one local prompt bundle and journaled provisional updates.
                         </div>
                         <div id="tv_continuity_controls">
                                 <div style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 8px;">
@@ -919,11 +919,15 @@
                                     <select id="tv_continuity_engine_mode" class="tv-select">
                                         <option value="legacy">Legacy processing (default)</option>
                                         <option value="shadow">Shadow validation (no prompt or lorebook writes)</option>
-                                        <option value="unified" disabled>Unified engine (not available yet)</option>
+                                        <option value="unified">Unified engine (local bundle + provisional journal)</option>
                                     </select>
-                                    <div class="tv-help-text" style="margin-top: 4px;">Shadow mode verifies chat/message revisions and reports stale work without changing generation context or stored lore.</div>
+                                    <div class="tv-help-text" style="margin-top: 4px;">Shadow validates revisions without writes. Unified waits for the next user turn before accepting assistant-derived changes; a swipe or edit reverts them.</div>
                                     <div id="tv_continuity_shadow_options" style="display: none; margin-top: 8px;">
                                         <label class="tv-checkbox-row"><input id="tv_continuity_shadow_diagnostics" type="checkbox" /><span>Show shadow validation events in the activity feed</span></label>
+                                    </div>
+                                    <div id="tv_continuity_unified_options" style="display: none; margin-top: 8px;">
+                                        <label class="tv-checkbox-row"><input id="tv_unified_project_accepted" type="checkbox" /><span>Project accepted, evidence-linked facts to the selected writable lorebook</span></label>
+                                        <div class="tv-help-text" style="margin-top:4px;">Off by default. Approved state remains local, reversible continuity data.</div>
                                     </div>
                                 </div>
                                 <div style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 8px;">
@@ -987,6 +991,7 @@
                                                 <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:5px;">
                                                     <button id="tv_continuity_export_inspection" type="button" class="tv-btn tv-btn-secondary">Export inspection</button>
                                                     <button id="tv_continuity_legacy_preview" type="button" class="tv-btn tv-btn-secondary">Preview legacy import</button>
+                                                    <button id="tv_continuity_legacy_import" type="button" class="tv-btn tv-btn-secondary">Import legacy claims</button>
                                                     <button id="tv_continuity_run_evaluation" type="button" class="tv-btn tv-btn-secondary">Run shadow evaluation</button>
                                                 </div>
                                                 <div id="tv_continuity_legacy_preview_output" class="tv-help-text" style="margin-top:5px;"></div>

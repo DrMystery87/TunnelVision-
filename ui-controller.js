@@ -228,6 +228,7 @@ export function bindUIEvents() {
     // Unified continuity engine rollout controls
     $('#tv_continuity_engine_mode').on('change', onContinuityEngineModeChange);
     $('#tv_continuity_shadow_diagnostics').on('change', onContinuityShadowDiagnosticsToggle);
+    $('#tv_unified_project_accepted').on('change', onUnifiedProjectAcceptedToggle);
     $('#tv_context_bundle_mode').on('change', onContextBundleModeChange);
     $('#tv_context_bundle_max_chars').on('change', onContextBundleMaxCharsChange);
     $('#tv_context_bundle_diagnostics').on('change', onContextBundleDiagnosticsToggle);
@@ -245,6 +246,7 @@ export function bindUIEvents() {
     $('#tv_continuity_kill_switch, #tv_continuity_evaluation_diagnostics').on('change', onContinuitySafetyToggle);
     $('#tv_continuity_export_inspection').on('click', onExportContinuityInspection);
     $('#tv_continuity_legacy_preview').on('click', onPreviewLegacyContinuityImport);
+    $('#tv_continuity_legacy_import').on('click', onImportLegacyContinuity);
     $('#tv_continuity_run_evaluation').on('click', onRunContinuityEvaluation);
     $('#tv_apply_rp_experience_profile').on('click', onApplyRpExperienceProfile);
     $('#tv_post_turn_min_fact_significance, #tv_post_turn_fact_consolidation_turns, #tv_continuity_max_active_arcs').on('change', onContinuityRpSafeguardChange);
@@ -1094,11 +1096,14 @@ function onPostTurnScopeChange() {
 function onContinuityEngineModeChange() {
     const settings = getSettings();
     const requested = $(this).val();
-    // Unified writes are deliberately unavailable until journal adapters and
-    // replay recovery are wired. Never persist an unsupported mode.
-    settings.continuityEngineMode = requested === 'shadow' ? 'shadow' : 'legacy';
+    settings.continuityEngineMode = ['legacy', 'shadow', 'unified'].includes(requested) ? requested : 'legacy';
+    if (settings.continuityEngineMode === 'unified') settings.contextBundleMode = 'inject';
+    settings.continuityPolicyRevision = Number(settings.continuityPolicyRevision || 0) + 1;
     $(this).val(settings.continuityEngineMode);
     $('#tv_continuity_shadow_options').toggle(settings.continuityEngineMode === 'shadow');
+    $('#tv_continuity_unified_options').toggle(settings.continuityEngineMode === 'unified');
+    $('#tv_context_bundle_mode').val(settings.contextBundleMode).prop('disabled', settings.continuityEngineMode === 'unified');
+    $('#tv_context_bundle_options').toggle(settings.contextBundleMode !== 'off');
     saveSettingsDebounced();
 }
 
@@ -1108,10 +1113,18 @@ function onContinuityShadowDiagnosticsToggle() {
     saveSettingsDebounced();
 }
 
+function onUnifiedProjectAcceptedToggle() {
+    const settings = getSettings();
+    settings.unifiedProjectAcceptedFacts = $(this).prop('checked');
+    saveSettingsDebounced();
+}
+
 function onContextBundleModeChange() {
     const settings = getSettings();
     const mode = $(this).val();
-    settings.contextBundleMode = ['off', 'shadow', 'inject'].includes(mode) ? mode : 'off';
+    settings.contextBundleMode = settings.continuityEngineMode === 'unified'
+        ? 'inject'
+        : ['off', 'shadow', 'inject'].includes(mode) ? mode : 'off';
     $('#tv_context_bundle_options').toggle(settings.contextBundleMode !== 'off');
     saveSettingsDebounced();
 }
@@ -1145,7 +1158,7 @@ function onContinuityAnalyzerMaxChangesChange() {
 }
 function onContinuityStateModeChange() {
     const settings = getSettings();
-    if ($(this).val() === 'drafts' && settings.continuityAnalyzerMode !== 'drafts') {
+    if ($(this).val() === 'drafts' && settings.continuityAnalyzerMode !== 'drafts' && settings.continuityEngineMode !== 'unified') {
         settings.continuityStateMode = 'off';
         $(this).val('off');
         toastr.warning('Enable Continuity Analyzer: Draft Review before enabling typed state.', 'TunnelVision');
@@ -1272,9 +1285,17 @@ async function onPreviewLegacyContinuityImport() {
         $output.text(label);
     } catch (error) { toastr.error(error.message, 'TunnelVision'); }
 }
-function onRunContinuityEvaluation() {
+async function onImportLegacyContinuity() {
     try {
-        const report = runCurrentChatShadowEvaluation();
+        const bookName = getSelectedLorebook();
+        const { importUnifiedLegacyClaims } = await import('./unified-turn-engine.js');
+        const imported = await importUnifiedLegacyClaims(bookName);
+        toastr.success(`Imported ${imported.length} provenance-linked legacy claim(s).`, 'TunnelVision');
+    } catch (error) { toastr.error(error.message, 'TunnelVision'); }
+}
+async function onRunContinuityEvaluation() {
+    try {
+        const report = await runCurrentChatShadowEvaluation();
         $('#tv_continuity_evaluation_output').text(`${report.validDrafts}/${report.drafts} draft(s) valid · ${report.bundleItems} bundle item(s) · ${report.bundleChars} chars${report.paused ? ' · pipeline paused' : ''}`);
         toastr.info(report.ready ? 'Shadow evaluation is ready.' : 'Shadow evaluation found stale drafts.', 'TunnelVision');
     } catch (error) { toastr.error(error.message, 'TunnelVision'); }
@@ -1411,12 +1432,18 @@ function onRejectSidecarWriteDraft() {
 function onBookPermissionChange() {
     if (!currentLorebook) return;
     setBookPermission(currentLorebook, $(this).val() || 'read_write');
+    const settings = getSettings();
+    settings.continuityPolicyRevision = Number(settings.continuityPolicyRevision || 0) + 1;
+    saveSettingsDebounced();
     registerTools();
 }
 
 function onBookInjectionModeChange() {
     if (!currentLorebook) return;
     setBookInjectionMode(currentLorebook, $(this).val() || 'sidecar');
+    const settings = getSettings();
+    settings.continuityPolicyRevision = Number(settings.continuityPolicyRevision || 0) + 1;
+    saveSettingsDebounced();
     registerTools();
 }
 
@@ -1480,12 +1507,15 @@ function populateConnectionProfiles() {
     $('#tv_post_turn_facts').prop('checked', settings.postTurnExtractFacts !== false);
     $('#tv_post_turn_scene_archive').prop('checked', settings.postTurnSceneArchive !== false);
 
-    const continuityMode = settings.continuityEngineMode === 'shadow' ? 'shadow' : 'legacy';
+    const continuityMode = ['shadow', 'unified'].includes(settings.continuityEngineMode) ? settings.continuityEngineMode : 'legacy';
     $('#tv_continuity_engine_mode').val(continuityMode);
     $('#tv_continuity_shadow_options').toggle(continuityMode === 'shadow');
+    $('#tv_continuity_unified_options').toggle(continuityMode === 'unified');
+    $('#tv_unified_project_accepted').prop('checked', settings.unifiedProjectAcceptedFacts === true);
     $('#tv_continuity_shadow_diagnostics').prop('checked', settings.continuityShadowDiagnostics === true);
     const bundleMode = ['shadow', 'inject'].includes(settings.contextBundleMode) ? settings.contextBundleMode : 'off';
     $('#tv_context_bundle_mode').val(bundleMode);
+    $('#tv_context_bundle_mode').prop('disabled', continuityMode === 'unified');
     $('#tv_context_bundle_options').toggle(bundleMode !== 'off');
     $('#tv_context_bundle_max_chars').val(settings.contextBundleMaxChars ?? 8000);
     $('#tv_context_bundle_diagnostics').prop('checked', settings.contextBundleDiagnostics === true);

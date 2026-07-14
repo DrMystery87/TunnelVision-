@@ -10,10 +10,10 @@ describe('continuity shadow evaluation', () => {
         expect(report).toMatchObject({ fixtures: 2, valid: 1, invalid: 1 });
     });
 
-    it('records current-chat diagnostics only when the diagnostics toggle is enabled', () => {
+    it('records current-chat diagnostics only when the diagnostics toggle is enabled', async () => {
         const context = { chatId: 'chat', chat: [], chatMetadata: {}, saveMetadataDebounced() {} };
         const settings = { continuityStateMode: 'off', continuityEvaluationDiagnostics: true };
-        const report = runCurrentChatShadowEvaluation({ context, settings, buildBundle: () => ({ text: 'bundle', manifest: [{ source: 'local' }] }), now: () => 7 });
+        const report = await runCurrentChatShadowEvaluation({ context, settings, buildBundle: () => ({ text: 'bundle', manifest: [{ source: 'local' }] }), now: () => 7 });
         expect(report).toMatchObject({ bundleChars: 6, bundleItems: 1, ready: true });
         expect(context.chatMetadata.tunnelvision_shadow_evaluations).toHaveLength(1);
     });

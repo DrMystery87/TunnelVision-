@@ -13,19 +13,40 @@ function trim(text, remaining) {
     return { text: `${text.slice(0, cut > remaining * 0.5 ? cut : remaining)}\n[...bundle limit reached]`, truncated: true };
 }
 
-export function buildContextBundle({
+export async function buildContextBundle({
     settings = getSettings(),
     buildWorldStatePromptImpl = buildWorldStatePrompt,
     buildSmartContextPromptImpl = buildSmartContextPrompt,
     buildNotebookPromptImpl = buildNotebookPrompt,
     buildContinuityStatePromptImpl = buildContinuityStatePrompt,
     getContinuityStateImpl = getContinuityState,
+    getAcceptedPatchesImpl = null,
 } = {}) {
     if (isContinuityPaused(settings)) return { text: '', manifest: [], maxChars: 0, paused: true };
     const maxChars = Math.min(Math.max(Number(settings.contextBundleMaxChars) || 8000, 500), 32000);
+    let accepted = [];
+    if (settings.continuityEngineMode === 'unified') {
+        const deadlineMs = Math.min(Math.max(Number(settings.contextBundleDeadlineMs) || 75, 10), 250);
+        try {
+            const loadAccepted = getAcceptedPatchesImpl || (await import('./unified-turn-engine.js')).getAcceptedUnifiedPatches;
+            accepted = await Promise.race([
+                loadAccepted(),
+                new Promise(resolve => setTimeout(() => resolve([]), deadlineMs)),
+            ]);
+        } catch {
+            // Context assembly must remain local and non-blocking. A later
+            // generation can use the accepted record once storage recovers.
+            accepted = [];
+        }
+    }
+    const acceptedText = accepted.flatMap(record => record.patch?.changes || [])
+        .slice(-12)
+        .map(change => `- ${change.summary}`)
+        .join('\n');
     const candidates = [
         { source: 'world-state', tier: 'current-continuity', text: settings.worldStateEnabled ? buildWorldStatePromptImpl() : '' },
         { source: 'typed-continuity', tier: 'current-continuity', text: settings.continuityStateMode === 'drafts' && settings.continuityStateInBundle !== false ? buildContinuityStatePromptImpl(getContinuityStateImpl(), { includeReflections: settings.continuityReflectionsInBundle === true }) : '' },
+        { source: 'accepted-claims', tier: 'relevant-episodes', text: acceptedText ? `[Accepted continuity claims]\n${acceptedText}` : '' },
         { source: 'smart-context', tier: 'retrieved-evidence', text: settings.smartContextEnabled ? buildSmartContextPromptImpl() : '' },
         { source: 'notebook', tier: 'notes', text: settings.notebookEnabled !== false ? buildNotebookPromptImpl() : '' },
     ].filter(item => item.text?.trim());

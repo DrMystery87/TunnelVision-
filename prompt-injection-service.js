@@ -136,6 +136,7 @@ export function isRecursiveToolPass(deps = {}) {
  *   worldState?: string,
  *   smartContext?: string,
  *   notebook?: string,
+ *   continuityBundle?: string,
  * }} prompts
  * @param {number} budget
  * @param {object} [deps]
@@ -146,6 +147,7 @@ export function isRecursiveToolPass(deps = {}) {
  *   worldState: string,
  *   smartContext: string,
  *   notebook: string,
+ *   continuityBundle: string,
  * }}
  */
 export function applyPromptBudget(prompts, budget, deps = {}) {
@@ -159,6 +161,7 @@ export function applyPromptBudget(prompts, budget, deps = {}) {
         worldState: prompts?.worldState || '',
         smartContext: prompts?.smartContext || '',
         notebook: prompts?.notebook || '',
+        continuityBundle: prompts?.continuityBundle || '',
     };
 
     if (!budget || budget <= 0) {
@@ -168,6 +171,7 @@ export function applyPromptBudget(prompts, budget, deps = {}) {
     let remaining = budget;
     const slots = [
         { key: 'mandatory' },
+        { key: 'continuityBundle' },
         { key: 'worldState' },
         { key: 'smartContext' },
         { key: 'notebook' },
@@ -255,7 +259,7 @@ export async function buildPromptInjectionPlan(deps = {}) {
         resetNotebookWriteGuardImpl();
     }
 
-    if (settings.ephemeralResults) {
+    if (settings.ephemeralResults && settings.continuityEngineMode !== 'unified') {
         stripOldToolResultsImpl({
             getSettingsImpl,
             getContextImpl: deps.getContextImpl,
@@ -308,28 +312,32 @@ export async function buildPromptInjectionPlan(deps = {}) {
     };
 
     if (enabled) {
-        if (!recursive && settings.mandatoryTools && activeBooks.length > 0) {
+        const unified = settings.continuityEngineMode === 'unified';
+        if (!unified && !recursive && settings.mandatoryTools && activeBooks.length > 0) {
             prompts.mandatory = settings.mandatoryPromptText || '[IMPORTANT INSTRUCTION: You MUST use TunnelVision tools this turn.]';
         }
 
-        if (settings.contextBundleMode === 'inject') {
-            const bundle = buildContextBundleImpl({ settings, buildWorldStatePromptImpl, buildSmartContextPromptImpl, buildNotebookPromptImpl });
+        const useBundle = unified || settings.contextBundleMode === 'inject';
+        if (useBundle) {
+            const bundle = await buildContextBundleImpl({ settings, buildWorldStatePromptImpl, buildSmartContextPromptImpl, buildNotebookPromptImpl });
             prompts.continuityBundle = bundle.text;
             if (settings.contextBundleDiagnostics) console.debug(`${TV_PROMPT_LOG_PREFIX} Context bundle`, bundle.manifest);
         } else if (settings.contextBundleMode === 'shadow') {
-            const bundle = buildContextBundleImpl({ settings, buildWorldStatePromptImpl, buildSmartContextPromptImpl, buildNotebookPromptImpl });
+            const bundle = await buildContextBundleImpl({ settings, buildWorldStatePromptImpl, buildSmartContextPromptImpl, buildNotebookPromptImpl });
             if (settings.contextBundleDiagnostics) console.debug(`${TV_PROMPT_LOG_PREFIX} Context bundle (shadow)`, bundle.manifest);
         } else if (settings.worldStateEnabled) {
             prompts.worldState = buildWorldStatePromptImpl();
         }
 
-        if (settings.smartContextEnabled) {
+        // A bundle owns all extension continuity context. Injecting its source
+        // prompts separately would bypass the manifest and duplicate context.
+        if (!useBundle && settings.smartContextEnabled) {
             prompts.smartContext = buildSmartContextPromptImpl();
-        } else {
+        } else if (!useBundle) {
             console.log(`${TV_PROMPT_LOG_PREFIX} Smart context skipped: disabled in settings`);
         }
 
-        if (settings.notebookEnabled !== false) {
+        if (!useBundle && settings.notebookEnabled !== false) {
             prompts.notebook = buildNotebookPromptImpl();
         }
     }
@@ -344,6 +352,7 @@ export async function buildPromptInjectionPlan(deps = {}) {
         worldState: prompts.worldState.length,
         smartContext: prompts.smartContext.length,
         notebook: prompts.notebook.length,
+        continuityBundle: prompts.continuityBundle.length,
     });
 
     console.log(`${TV_PROMPT_LOG_PREFIX} Prompt build complete`, {
@@ -351,6 +360,7 @@ export async function buildPromptInjectionPlan(deps = {}) {
         worldStateChars: prompts.worldState.length,
         smartContextChars: prompts.smartContext.length,
         notebookChars: prompts.notebook.length,
+        continuityBundleChars: prompts.continuityBundle.length,
     });
 
     return {

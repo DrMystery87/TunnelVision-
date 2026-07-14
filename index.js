@@ -32,8 +32,9 @@ import { initActivityFeed } from './activity-feed.js';
 import { initCommands } from './commands.js';
 import { initAutoSummary } from './auto-summary.js';
 import { initPostTurnProcessor } from './post-turn-processor.js';
+import { initSmartContext } from './smart-context.js';
 import { clearSidecarRetrievalPrompt, runSidecarRetrieval } from './sidecar-retrieval.js';
-import { beginContinuityTurn, cancelAllContinuityTurns, cancelContinuityTurn, completeContinuityTurn } from './turn-coordinator.js';
+import { beginContinuityTurn, cancelAllContinuityTurns, cancelContinuityTurn, completeContinuityTurn, refreshContinuityResponse } from './turn-coordinator.js';
 import { analyzeContinuityTurn } from './continuity-analyzer.js';
 import { runSidecarWriter } from './sidecar-writer.js';
 import { applyPromptInjectionPlan, buildPromptInjectionPlan, clearPromptInjectionSlots } from './prompt-injection-service.js';
@@ -54,6 +55,14 @@ let _toolRecursionDepth = 0;
 let _skipPreCommandGeneration = false;
 let _stateRefreshTimer = null;
 let _sidecarRetrievalAbortController = null;
+let _groupContinuitySnapshot = null;
+let _groupContinuitySettleTimer = null;
+let _unifiedEnginePromise = null;
+
+function loadUnifiedEngine() {
+    _unifiedEnginePromise ??= import('./unified-turn-engine.js');
+    return _unifiedEnginePromise;
+}
 
 async function init() {
     // Ensure settings exist
@@ -84,12 +93,17 @@ async function init() {
     // Wire up post-turn processor (tracker updates, fact extraction, scene archiving)
     initPostTurnProcessor();
 
+    // Local relevance feedback and pre-warming are read-only with respect to
+    // lorebook state, and supply the Unified ContextBundle without a network call.
+    initSmartContext();
+
     // Inject condition editor into ST's base lorebook editor
     initWIConditionInjector();
 
     // Load initial state
     autoDetectLorebooks();
     refreshUI();
+    await (await loadUnifiedEngine()).recoverUnifiedContinuity();
 
     // Apply recurse limit override and register tools
     const settings = getSettings();
@@ -158,6 +172,7 @@ async function init() {
             _sidecarRetrievalAbortController?.abort();
             _sidecarRetrievalAbortController = null;
             clearSidecarRetrievalPrompt();
+            clearPromptInjectionSlots();
             cancelContinuityTurn('generation-ended');
         });
     } else {
@@ -171,6 +186,10 @@ async function init() {
                 _sidecarRetrievalAbortController?.abort();
                 _sidecarRetrievalAbortController = null;
                 clearSidecarRetrievalPrompt();
+                clearPromptInjectionSlots();
+                if (_groupContinuitySettleTimer) window.clearTimeout(_groupContinuitySettleTimer);
+                _groupContinuitySettleTimer = null;
+                _groupContinuitySnapshot = null;
                 cancelContinuityTurn('generation-stopped');
             });
         }
@@ -179,6 +198,24 @@ async function init() {
     // Post-generation sidecar writer (remember/update after model responds)
     if (event_types.MESSAGE_RECEIVED) {
         eventSource.on(event_types.MESSAGE_RECEIVED, onMessageReceived);
+    }
+    if (event_types.MESSAGE_SWIPED) {
+        eventSource.on(event_types.MESSAGE_SWIPED, messageId => {
+            if (_groupContinuitySettleTimer) window.clearTimeout(_groupContinuitySettleTimer);
+            _groupContinuitySettleTimer = null;
+            _groupContinuitySnapshot = null;
+            cancelContinuityTurn('message-swiped');
+            void loadUnifiedEngine().then(({ revertUnifiedResponse }) => revertUnifiedResponse(getContext().chatId, messageId, 'message-swiped'));
+        });
+    }
+    if (event_types.MESSAGE_EDITED) {
+        eventSource.on(event_types.MESSAGE_EDITED, messageId => {
+            if (_groupContinuitySettleTimer) window.clearTimeout(_groupContinuitySettleTimer);
+            _groupContinuitySettleTimer = null;
+            _groupContinuitySnapshot = null;
+            cancelContinuityTurn('message-edited');
+            void loadUnifiedEngine().then(({ revertUnifiedResponse }) => revertUnifiedResponse(getContext().chatId, messageId, 'message-edited'));
+        });
     }
 
     // Orphaned tool invocations are cleaned during generation preflight. Doing
@@ -200,6 +237,11 @@ async function init() {
 
 async function onChatChanged() {
     cancelAllContinuityTurns('chat-changed');
+    if (_groupContinuitySettleTimer) window.clearTimeout(_groupContinuitySettleTimer);
+    _groupContinuitySettleTimer = null;
+    _groupContinuitySnapshot = null;
+    clearPromptInjectionSlots();
+    await (await loadUnifiedEngine()).recoverUnifiedContinuity();
     await refreshRuntimeState('chat changed');
 }
 
@@ -864,8 +906,6 @@ function isPendingSlashCommandGeneration(type) {
 
 function onGenerationAfterCommands(_type, _opts, dryRun) {
     if (dryRun) return;
-
-    beginContinuityTurn({ type, dryRun });
     _skipPreCommandGeneration = false;
 }
 
@@ -927,6 +967,13 @@ async function onGenerationStarted(type, opts, dryRun) {
     }
 
     const settings = getSettings();
+    const unifiedApi = await loadUnifiedEngine();
+    const unified = unifiedApi.isUnifiedContinuityEnabled();
+    if (unified) clearSidecarRetrievalPrompt();
+    // A response becomes accepted only when the user advances the chat. This
+    // keeps a swipe/regenerate from leaking provisional facts into context.
+    if (unified && lastMsg?.is_user) await unifiedApi.acceptUnifiedProvisional(context.chatId);
+    beginContinuityTurn({ type, dryRun });
     let runtimeState = null;
 
     // Clean up orphaned tool_invocations at the tail of chat (caused by
@@ -940,12 +987,12 @@ async function onGenerationStarted(type, opts, dryRun) {
     }
 
     // Ephemeral mode: strip old TunnelVision tool results from context
-    if (settings.ephemeralResults) {
+    if (!unified && settings.ephemeralResults) {
         stripOldToolResults();
     }
 
     // Sidecar auto-retrieval: pre-fetch relevant entries before generation (first pass only)
-    if (settings.sidecarAutoRetrieval && settings.globalEnabled !== false) {
+    if (!unified && settings.sidecarAutoRetrieval && settings.globalEnabled !== false) {
         _sidecarRetrievalAbortController?.abort();
         const controller = new AbortController();
         _sidecarRetrievalAbortController = controller;
@@ -1035,8 +1082,27 @@ async function onMessageReceived(_messageId, type) {
     _generationInProgress = false;
     _skipPreCommandGeneration = false;
     window.TunnelVision_isRecursiveToolPass = false;
-    completeContinuityTurn({ messageId: _messageId, type });
-    void analyzeContinuityTurn({ messageId: _messageId }).catch(error => console.error('[TunnelVision] Continuity analyzer failed:', error));
+    const completion = completeContinuityTurn({ messageId: _messageId, type });
+    const unifiedApi = await loadUnifiedEngine();
+    if (unifiedApi.isUnifiedContinuityEnabled()) {
+        const context = getContext();
+        if (context.groupId && completion.accepted) _groupContinuitySnapshot = completion.snapshot;
+        if (context.groupId && _groupContinuitySnapshot) {
+            if (_groupContinuitySettleTimer) window.clearTimeout(_groupContinuitySettleTimer);
+            _groupContinuitySettleTimer = window.setTimeout(() => {
+                const snapshot = refreshContinuityResponse(_groupContinuitySnapshot);
+                _groupContinuitySnapshot = null;
+                _groupContinuitySettleTimer = null;
+                if (snapshot) void unifiedApi.analyzeUnifiedTurn(snapshot, { messageId: snapshot.responseMessageIndex })
+                    .catch(error => console.error('[TunnelVision] Unified group continuity analyzer failed:', error));
+            }, 350);
+        } else if (completion.accepted) {
+            void unifiedApi.analyzeUnifiedTurn(completion.snapshot, { messageId: _messageId })
+                .catch(error => console.error('[TunnelVision] Unified continuity analyzer failed:', error));
+        }
+    } else {
+        void analyzeContinuityTurn({ messageId: _messageId }).catch(error => console.error('[TunnelVision] Continuity analyzer failed:', error));
+    }
 
     try {
         await flushPendingSummaryHide();
@@ -1050,6 +1116,7 @@ async function onMessageReceived(_messageId, type) {
     if (skipTypes.includes(type)) return;
 
     const settings = getSettings();
+    if (settings.continuityEngineMode === 'unified') return;
     if (!settings.sidecarPostGenWriter || settings.globalEnabled === false) return;
     // Post-turn processing has precedence if an older saved configuration has
     // both legacy writers enabled. The UI keeps them mutually exclusive, but
