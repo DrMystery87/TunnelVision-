@@ -14,12 +14,14 @@ import { setInjectionSizes } from './agent-utils.js';
 import { buildNotebookPrompt, resetNotebookWriteGuard } from './tools/notebook.js';
 import { buildWorldStatePrompt } from './world-state.js';
 import { buildSmartContextPrompt } from './smart-context.js';
+import { buildContextBundle } from './context-bundle.js';
 import { MIN_INJECTION_BUDGET_CHARS, BUDGET_TRIM_NEWLINE_RATIO } from './constants.js';
 
 export const TV_PROMPT_KEY = 'tunnelvision_mandatory';
 export const TV_NOTEBOOK_KEY = 'tunnelvision_notebook';
 export const TV_WORLDSTATE_KEY = 'tunnelvision_worldstate';
 export const TV_SMARTCTX_KEY = 'tunnelvision_smartcontext';
+export const TV_CONTEXTBUNDLE_KEY = 'tunnelvision_contextbundle';
 const TV_PROMPT_LOG_PREFIX = '[TunnelVision][PromptInjection]';
 
 /**
@@ -235,6 +237,7 @@ export async function buildPromptInjectionPlan(deps = {}) {
         buildWorldStatePromptImpl = buildWorldStatePrompt,
         buildSmartContextPromptImpl = buildSmartContextPrompt,
         buildNotebookPromptImpl = buildNotebookPrompt,
+        buildContextBundleImpl = buildContextBundle,
         setInjectionSizesImpl = setInjectionSizes,
         resetTurnEntryCountImpl = resetTurnEntryCount,
         invalidateDirtyWorldInfoCacheImpl = invalidateDirtyWorldInfoCache,
@@ -301,6 +304,7 @@ export async function buildPromptInjectionPlan(deps = {}) {
         worldState: '',
         smartContext: '',
         notebook: '',
+        continuityBundle: '',
     };
 
     if (enabled) {
@@ -308,7 +312,14 @@ export async function buildPromptInjectionPlan(deps = {}) {
             prompts.mandatory = settings.mandatoryPromptText || '[IMPORTANT INSTRUCTION: You MUST use TunnelVision tools this turn.]';
         }
 
-        if (settings.worldStateEnabled) {
+        if (settings.contextBundleMode === 'inject') {
+            const bundle = buildContextBundleImpl({ settings, buildWorldStatePromptImpl, buildSmartContextPromptImpl, buildNotebookPromptImpl });
+            prompts.continuityBundle = bundle.text;
+            if (settings.contextBundleDiagnostics) console.debug(`${TV_PROMPT_LOG_PREFIX} Context bundle`, bundle.manifest);
+        } else if (settings.contextBundleMode === 'shadow') {
+            const bundle = buildContextBundleImpl({ settings, buildWorldStatePromptImpl, buildSmartContextPromptImpl, buildNotebookPromptImpl });
+            if (settings.contextBundleDiagnostics) console.debug(`${TV_PROMPT_LOG_PREFIX} Context bundle (shadow)`, bundle.manifest);
+        } else if (settings.worldStateEnabled) {
             prompts.worldState = buildWorldStatePromptImpl();
         }
 
@@ -410,6 +421,14 @@ export function applyPromptInjectionPlan(payload, deps = {}) {
         false,
         payload.promptMeta.notebook.role,
     );
+    setExtensionPromptImpl(
+        TV_CONTEXTBUNDLE_KEY,
+        payload.prompts.continuityBundle || '',
+        payload.promptMeta.worldState.position,
+        payload.promptMeta.worldState.depth,
+        false,
+        payload.promptMeta.worldState.role,
+    );
 }
 
 /**
@@ -427,7 +446,7 @@ export function clearPromptInjectionSlots(deps = {}) {
         promptTypes = extension_prompt_types,
         promptRoles = extension_prompt_roles,
     } = deps;
-    const keys = [TV_PROMPT_KEY, TV_WORLDSTATE_KEY, TV_SMARTCTX_KEY, TV_NOTEBOOK_KEY];
+    const keys = [TV_PROMPT_KEY, TV_WORLDSTATE_KEY, TV_SMARTCTX_KEY, TV_NOTEBOOK_KEY, TV_CONTEXTBUNDLE_KEY];
 
     for (const key of keys) {
         setExtensionPromptImpl(key, '', promptTypes.IN_CHAT, 0, false, promptRoles.SYSTEM);

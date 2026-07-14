@@ -809,6 +809,11 @@
                                                 <input type="number" id="tv_sidecar_max_injection" class="tv-number-input" min="500" max="16000" step="500" value="4000" />
                                             </div>
                                         </div>
+                                        <div style="margin-top: 8px;">
+                                            <label class="tv-label" for="tv_sidecar_retrieval_timeout">Retrieval deadline (ms)</label>
+                                            <input type="number" id="tv_sidecar_retrieval_timeout" class="tv-number-input" min="100" max="30000" step="100" value="3000" />
+                                            <div class="tv-help-text" style="margin-top: 4px;">If the sidecar has not finished by this deadline, generation continues without sidecar context.</div>
+                                        </div>
                                         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
                                             <div style="flex: 1;">
                                                 <label class="tv-label" for="tv_sidecar_retrieval_temperature">Retrieval Temperature: <span id="tv_sidecar_retrieval_temp_val">0.10</span></label>
@@ -870,6 +875,109 @@
                                             </div>
                                         </div>
                                         <div id="tv_sidecar_writer_drafts" class="tv-entry-list" style="margin-top: 10px;"></div>
+                                    </div>
+                                </div>
+                                <!-- Legacy Post-Turn Processor -->
+                                <div style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 8px;">
+                                    <label class="tv-toggle">
+                                        <input id="tv_post_turn_enabled" type="checkbox" />
+                                        <span class="tv-toggle-slider"></span>
+                                        <span class="tv-toggle-label">Post-Turn Continuity Processing</span>
+                                    </label>
+                                    <div class="tv-help-text" style="margin-top: 4px;">Updates trackers, extracts facts, and can archive scenes after a response. It is mutually exclusive with Auto-Write After Generation so only one legacy writer can run.</div>
+                                    <div id="tv_post_turn_options" style="display: none; margin-top: 8px;">
+                                        <div class="tv-number-row" style="margin-bottom: 8px;">
+                                            <label class="tv-number-label" for="tv_post_turn_cooldown">Run every</label>
+                                            <input id="tv_post_turn_cooldown" type="number" class="tv-number-input" min="1" max="100" step="1" value="1" />
+                                            <span class="tv-help-text">assistant response(s)</span>
+                                        </div>
+                                        <label class="tv-checkbox-row"><input id="tv_post_turn_trackers" type="checkbox" checked /><span>Update character trackers</span></label>
+                                        <label class="tv-checkbox-row"><input id="tv_post_turn_facts" type="checkbox" checked /><span>Extract continuity facts</span></label>
+                                        <label class="tv-checkbox-row"><input id="tv_post_turn_scene_archive" type="checkbox" checked /><span>Archive completed scenes</span></label>
+                                    </div>
+                                </div>
+                                <!-- Unified Continuity Engine rollout -->
+                                <div style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 8px;">
+                                    <div class="tv-label">Continuity Engine</div>
+                                    <select id="tv_continuity_engine_mode" class="tv-select">
+                                        <option value="legacy">Legacy processing (default)</option>
+                                        <option value="shadow">Shadow validation (no prompt or lorebook writes)</option>
+                                        <option value="unified" disabled>Unified engine (not available yet)</option>
+                                    </select>
+                                    <div class="tv-help-text" style="margin-top: 4px;">Shadow mode verifies chat/message revisions and reports stale work without changing generation context or stored lore.</div>
+                                    <div id="tv_continuity_shadow_options" style="display: none; margin-top: 8px;">
+                                        <label class="tv-checkbox-row"><input id="tv_continuity_shadow_diagnostics" type="checkbox" /><span>Show shadow validation events in the activity feed</span></label>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 8px;">
+                                    <div class="tv-label">Continuity Context Bundle</div>
+                                    <select id="tv_context_bundle_mode" class="tv-select">
+                                        <option value="off">Off (default)</option>
+                                        <option value="shadow">Shadow (build only, do not inject)</option>
+                                        <option value="inject">Inject local bundle</option>
+                                    </select>
+                                    <div class="tv-help-text" style="margin-top: 4px;">Inject mode combines World State, Smart Context, and Notebook into one bounded system prompt slot.</div>
+                                    <div id="tv_context_bundle_options" style="display:none; margin-top: 8px;">
+                                        <label class="tv-label" for="tv_context_bundle_max_chars">Maximum characters</label>
+                                        <input id="tv_context_bundle_max_chars" type="number" class="tv-number-input" min="500" max="32000" step="500" value="8000" />
+                                        <label class="tv-checkbox-row"><input id="tv_context_bundle_diagnostics" type="checkbox" /><span>Log bundle manifest to the browser console</span></label>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 8px;">
+                                    <div class="tv-label">Continuity Analyzer</div>
+                                    <select id="tv_continuity_analyzer_mode" class="tv-select">
+                                        <option value="off">Off (default)</option>
+                                        <option value="shadow">Shadow (validate only)</option>
+                                        <option value="drafts">Draft Review (save validated patches)</option>
+                                    </select>
+                                    <div class="tv-help-text" style="margin-top:4px;">Uses one background analysis call after a response. It never writes lorebook entries automatically.</div>
+                                    <div id="tv_continuity_analyzer_options" style="display:none; margin-top:8px;">
+                                        <label class="tv-label" for="tv_continuity_analyzer_max_changes">Maximum proposed changes</label>
+                                        <input id="tv_continuity_analyzer_max_changes" type="number" class="tv-number-input" min="1" max="10" step="1" value="5" />
+                                        <label class="tv-label" for="tv_continuity_state_mode" style="margin-top:8px;">Typed Role &amp; Scene State</label>
+                                        <select id="tv_continuity_state_mode" class="tv-select">
+                                            <option value="off">Off (default)</option>
+                                            <option value="drafts">Review-gated state drafts</option>
+                                        </select>
+                                        <div class="tv-help-text" style="margin-top:4px;">Uses the same analyzer response; it does not create an extra model call or auto-write state.</div>
+                                        <div id="tv_continuity_state_options" style="display:none; margin-top:6px;">
+                                            <label class="tv-label" for="tv_continuity_state_mood_inertia">Mood confirmations before applying</label>
+                                            <input id="tv_continuity_state_mood_inertia" type="number" class="tv-number-input" min="1" max="5" step="1" value="2" />
+                                            <label class="tv-label" for="tv_continuity_state_boundary_signals" style="margin-top:5px;">Scene-boundary signals required</label>
+                                            <input id="tv_continuity_state_boundary_signals" type="number" class="tv-number-input" min="2" max="4" step="1" value="2" />
+                                            <label class="tv-checkbox-row"><input id="tv_continuity_state_in_bundle" type="checkbox" checked /><span>Include approved role and scene constraints in Context Bundle</span></label>
+                                            <label class="tv-label" for="tv_continuity_arc_hibernation_turns" style="margin-top:5px;">Hibernate inactive arcs after messages</label>
+                                            <input id="tv_continuity_arc_hibernation_turns" type="number" class="tv-number-input" min="2" max="200" step="1" value="12" />
+                                            <label class="tv-checkbox-row"><input id="tv_continuity_arc_auto_reactivate" type="checkbox" checked /><span>Reactivate a hibernated arc only with fresh matching evidence</span></label>
+                                            <label class="tv-label" for="tv_continuity_maintenance_mode" style="margin-top:5px;">Continuity maintenance</label>
+                                            <select id="tv_continuity_maintenance_mode" class="tv-select">
+                                                <option value="off">Manual only (default)</option>
+                                                <option value="idle">Run after idle delay</option>
+                                            </select>
+                                            <button id="tv_continuity_maintenance_run" type="button" class="tv-btn tv-btn-secondary" style="margin-top:5px;">Run maintenance now</button>
+                                            <div id="tv_continuity_maintenance_options" style="display:none; margin-top:5px;">
+                                                <label class="tv-label" for="tv_continuity_maintenance_idle_ms">Idle delay (milliseconds)</label>
+                                                <input id="tv_continuity_maintenance_idle_ms" type="number" class="tv-number-input" min="5000" max="900000" step="1000" value="60000" />
+                                                <label class="tv-label" for="tv_continuity_maintenance_reflection_limit" style="margin-top:5px;">Maximum reflections per run</label>
+                                                <input id="tv_continuity_maintenance_reflection_limit" type="number" class="tv-number-input" min="1" max="20" step="1" value="6" />
+                                                <label class="tv-checkbox-row"><input id="tv_continuity_reflections_in_bundle" type="checkbox" /><span>Include evidence-linked reflections in Context Bundle</span></label>
+                                            </div>
+                                        </div>
+                                        <details style="margin-top:8px; padding-top:6px; border-top:1px solid var(--SmartThemeBorderColor);">
+                                            <summary class="tv-label" style="cursor:pointer;">Safety &amp; Evaluation</summary>
+                                            <label class="tv-checkbox-row"><input id="tv_continuity_kill_switch" type="checkbox" /><span>Pause the unified continuity pipeline</span></label>
+                                            <label class="tv-checkbox-row"><input id="tv_continuity_evaluation_diagnostics" type="checkbox" /><span>Include diagnostics in continuity inspection export</span></label>
+                                                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:5px;">
+                                                    <button id="tv_continuity_export_inspection" type="button" class="tv-btn tv-btn-secondary">Export inspection</button>
+                                                    <button id="tv_continuity_legacy_preview" type="button" class="tv-btn tv-btn-secondary">Preview legacy import</button>
+                                                    <button id="tv_continuity_run_evaluation" type="button" class="tv-btn tv-btn-secondary">Run shadow evaluation</button>
+                                                </div>
+                                                <div id="tv_continuity_legacy_preview_output" class="tv-help-text" style="margin-top:5px;"></div>
+                                                <div id="tv_continuity_evaluation_output" class="tv-help-text" style="margin-top:3px;"></div>
+                                        </details>
+                                        <div id="tv_continuity_drafts" class="tv-entry-list" style="margin-top:8px;"></div>
+                                        <div class="tv-help-text" style="margin-top:8px;">Applied continuity changes (journal-backed; undo removes only entries created by the selected draft).</div>
+                                        <div id="tv_continuity_applied" class="tv-entry-list" style="margin-top:4px;"></div>
                                     </div>
                                 </div>
                             </div>

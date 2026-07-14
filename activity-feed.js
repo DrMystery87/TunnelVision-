@@ -10,6 +10,7 @@ import { ALL_TOOL_NAMES, getActiveTunnelVisionBooks } from './tool-registry.js';
 import { getSettings, isLorebookEnabled, getTree } from './tree-store.js';
 import { openTreeEditorForBook } from './ui-controller.js';
 import { getSidecarModelLabel } from './llm-sidecar.js';
+import { _registerFeedCallbacks } from './background-events.js';
 
 const MAX_FEED_ITEMS = 50;
 const MAX_RENDERED_RETRIEVED_ENTRIES = 5;
@@ -89,6 +90,18 @@ export function initActivityFeed() {
     loadFeed();
     createTriggerButton();
     createPanel();
+
+    // Background processors publish through a small event bus to avoid a
+    // circular import. Register the live UI callbacks as soon as the feed is
+    // ready so background activity is visible rather than silently dropped.
+    _registerFeedCallbacks({
+        addFeedItems,
+        setTriggerActive: setSidecarActive,
+        refreshTasksUI: () => {
+            if (panelEl?.classList.contains('open')) renderAllItems();
+        },
+        getFeedItems,
+    });
 
     // Listen for WI activations (primary — shows what entries triggered)
     if (event_types.WORLD_INFO_ACTIVATED) {

@@ -427,8 +427,10 @@ async function resolveConditionalContent(evaluations, conditionalEntries) {
  *
  * @returns {Promise<void>}
  */
-export async function runSidecarRetrieval() {
+export async function runSidecarRetrieval({ signal } = {}) {
     const settings = getSettings();
+
+    if (signal?.aborted) return;
 
     // Guard: must be enabled and sidecar must be configured
     if (!settings.sidecarAutoRetrieval) return;
@@ -459,6 +461,7 @@ export async function runSidecarRetrieval() {
     const conditionalEntries = settings.conditionalTriggersEnabled !== false
         ? await collectConditionalEntries()
         : [];
+    if (signal?.aborted) return;
     const conditionalSection = buildConditionalSection(conditionalEntries);
 
     setSidecarActive(true);
@@ -471,6 +474,9 @@ export async function runSidecarRetrieval() {
             systemPrompt: applyBackgroundPromptAddendum(SIDECAR_SYSTEM_PROMPT) + langDirective,
             task: 'retrieval',
         });
+        // The underlying provider may not support AbortSignal. Do not let a
+        // late response inject stale context after the generation deadline.
+        if (signal?.aborted) return;
 
         const { nodeIds, reasoning, conditionalEvaluations } = parseSidecarResponse(response);
 
@@ -494,6 +500,7 @@ export async function runSidecarRetrieval() {
 
         if (nodeIds.length > 0) {
             const nodeContent = await resolveNodeContent(nodeIds);
+            if (signal?.aborted) return;
             if (nodeContent.trim()) {
                 injectionParts.push(nodeContent);
             }
@@ -502,6 +509,7 @@ export async function runSidecarRetrieval() {
         // Resolve accepted conditional entries
         if (conditionalEvaluations.length > 0) {
             const conditionalContent = await resolveConditionalContent(conditionalEvaluations, conditionalEntries);
+            if (signal?.aborted) return;
             if (conditionalContent.trim()) {
                 injectionParts.push(conditionalContent);
             }
@@ -524,6 +532,7 @@ export async function runSidecarRetrieval() {
             ? injectionText.substring(0, maxChars) + '\n[... content truncated]'
             : injectionText;
 
+        if (signal?.aborted) return;
         setExtensionPrompt(TV_SIDECAR_RETRIEVAL_KEY, capped, position, depth, false, role);
 
         // Resolve node labels for the feed
@@ -562,6 +571,11 @@ export async function runSidecarRetrieval() {
     } finally {
         setSidecarActive(false);
     }
+}
+
+/** Clear the separate legacy sidecar slot on cancellation or timeout. */
+export function clearSidecarRetrievalPrompt() {
+    clearRetrievalPrompt(getSettings());
 }
 
 /**

@@ -12,7 +12,8 @@ import { selected_group, groups } from '../../../group-chats.js';
 import { getCharaFilename } from '../../../utils.js';
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 import { power_user } from '../../../power-user.js';
-import { isLorebookEnabled, getSettings, getTree, getBookDescription, syncTrackerUidsForLorebook, getBookPermission, canReadBook, canWriteBook, isNativeInjectionBook } from './tree-store.js';
+import { isLorebookEnabled, getSettings, getTree, getBookDescription, syncTrackerUidsForLorebook, getBookPermission, canReadBook, canWriteBook } from './tree-store.js';
+import { canInjectBook } from './book-policy.js';
 import { logToolCallStarted } from './activity-feed.js';
 import { findEntry } from './entry-manager.js';
 
@@ -365,7 +366,7 @@ export function getWritableBooks() {
  * @returns {string[]}
  */
 export function getInjectionManagedBooks() {
-    return getActiveTunnelVisionBooks().filter(b => !isNativeInjectionBook(b));
+    return getActiveTunnelVisionBooks().filter(canInjectBook);
 }
 
 /**

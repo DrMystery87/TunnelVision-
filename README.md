@@ -420,6 +420,20 @@ That's it. TunnelVision registers its tools automatically. Your AI will start us
 Every tool can be individually enabled/disabled in Advanced Settings:
 Search, Remember, Update, Forget, Summarize, Reorganize, Merge/Split, Notebook
 
+### Experimental Continuity Preview
+
+The **Continuity Analyzer** is an opt-in, review-first preview pipeline. It is disabled by default and never writes a lorebook entry until you press **Apply** on a draft.
+
+| Control | Safe use |
+|---------|----------|
+| Continuity Analyzer → Draft Review | Creates evidence-linked review drafts after a response. |
+| Typed Role & Scene State | Adds reviewed persona, relationship, knowledge, physical, scene, and arc constraints. |
+| Context Bundle → Shadow | Measures the unified prompt bundle without injecting it. |
+| Maintenance → Manual only | Creates non-destructive, provenance-linked reflections only when you press **Run maintenance now**. |
+| Safety & Evaluation | Pause the new pipeline, export an inspection, preview legacy import, or run a local shadow evaluation. |
+
+Recommended first use after installing from GitHub: enable **Draft Review** and **Context Bundle → Shadow**, play a few representative turns, then run **Shadow evaluation**. Inspect drafts before applying any of them. The Safety & Evaluation section is compact by design and stays out of the way until needed.
+
 ---
 
 ## 🔧 Common Issues

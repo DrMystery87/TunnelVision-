@@ -448,7 +448,7 @@ describe('applyPromptInjectionPlan', () => {
     it('clears every service-owned slot for a recursive tool pass', () => {
         clearPromptInjectionSlots();
 
-        expect(setExtensionPrompt).toHaveBeenCalledTimes(4);
+        expect(setExtensionPrompt).toHaveBeenCalledTimes(5);
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(1, TV_PROMPT_KEY, '', 'IN_CHAT', 0, false, 'SYSTEM');
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(2, TV_WORLDSTATE_KEY, '', 'IN_CHAT', 0, false, 'SYSTEM');
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(3, TV_SMARTCTX_KEY, '', 'IN_CHAT', 0, false, 'SYSTEM');
@@ -484,7 +484,7 @@ describe('applyPromptInjectionPlan', () => {
         });
         applyPromptInjectionPlan(plan);
 
-        expect(setExtensionPrompt).toHaveBeenCalledTimes(4);
+        expect(setExtensionPrompt).toHaveBeenCalledTimes(5);
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(1, TV_PROMPT_KEY, 'MANDATORY', 'IN_PROMPT', 9, false, 'USER');
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(2, TV_WORLDSTATE_KEY, 'WORLD', 'IN_CHAT', 2, false, 'ASSISTANT');
         expect(setExtensionPrompt).toHaveBeenNthCalledWith(3, TV_SMARTCTX_KEY, 'SMART', 'IN_PROMPT', 7, false, 'SYSTEM');

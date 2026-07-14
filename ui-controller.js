@@ -47,6 +47,11 @@ import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
 import { resolveTaskSampler } from './sidecar-safety.js';
 import { getSidecarWriteDrafts } from './sidecar-drafts.js';
 import { approveSidecarWriteDraft, rejectSidecarWriteDraft } from './sidecar-writer.js';
+import { approveContinuityDraft, getAppliedContinuityTransactions, getContinuityDrafts, rejectContinuityDraft, undoContinuityTransaction } from './continuity-analyzer.js';
+import { runContinuityMaintenance } from './continuity-maintenance.js';
+import { downloadContinuityInspection } from './continuity-inspection.js';
+import { previewLegacyContinuityImport } from './legacy-continuity-import.js';
+import { runCurrentChatShadowEvaluation } from './continuity-evaluation.js';
 
 
 let currentLorebook = null;
@@ -200,6 +205,7 @@ export function bindUIEvents() {
 
     // Sidecar auto-retrieval
     $('#tv_sidecar_auto_retrieval').on('change', onSidecarAutoRetrievalToggle);
+    $('#tv_sidecar_retrieval_timeout').on('change', onSidecarRetrievalTimeoutChange);
     $('#tv_sidecar_context_messages').on('input', onSidecarContextMessagesChange);
     $('#tv_sidecar_max_injection').on('input', onSidecarMaxInjectionChange);
     $('#tv_sidecar_retrieval_temperature, #tv_sidecar_retrieval_max_tokens').on('input', onSidecarRetrievalSamplerChange);
@@ -218,6 +224,37 @@ export function bindUIEvents() {
     $('#tv_sidecar_writer_temperature, #tv_sidecar_writer_max_tokens').on('input', onSidecarWriterSamplerChange);
     $('#tv_sidecar_writer_drafts').on('click', '.tv-sidecar-draft-approve', onApproveSidecarWriteDraft);
     $('#tv_sidecar_writer_drafts').on('click', '.tv-sidecar-draft-reject', onRejectSidecarWriteDraft);
+
+    // Unified continuity engine rollout controls
+    $('#tv_continuity_engine_mode').on('change', onContinuityEngineModeChange);
+    $('#tv_continuity_shadow_diagnostics').on('change', onContinuityShadowDiagnosticsToggle);
+    $('#tv_context_bundle_mode').on('change', onContextBundleModeChange);
+    $('#tv_context_bundle_max_chars').on('change', onContextBundleMaxCharsChange);
+    $('#tv_context_bundle_diagnostics').on('change', onContextBundleDiagnosticsToggle);
+    $('#tv_continuity_analyzer_mode').on('change', onContinuityAnalyzerModeChange);
+    $('#tv_continuity_analyzer_max_changes').on('change', onContinuityAnalyzerMaxChangesChange);
+    $('#tv_continuity_state_mode').on('change', onContinuityStateModeChange);
+    $('#tv_continuity_state_mood_inertia, #tv_continuity_state_boundary_signals').on('change', onContinuityStateNumberChange);
+    $('#tv_continuity_state_in_bundle').on('change', onContinuityStateInBundleToggle);
+    $('#tv_continuity_arc_hibernation_turns').on('change', onContinuityArcHibernationTurnsChange);
+    $('#tv_continuity_arc_auto_reactivate').on('change', onContinuityArcAutoReactivateToggle);
+    $('#tv_continuity_maintenance_mode').on('change', onContinuityMaintenanceModeChange);
+    $('#tv_continuity_maintenance_idle_ms, #tv_continuity_maintenance_reflection_limit').on('change', onContinuityMaintenanceNumberChange);
+    $('#tv_continuity_reflections_in_bundle').on('change', onContinuityReflectionsInBundleToggle);
+    $('#tv_continuity_maintenance_run').on('click', onRunContinuityMaintenance);
+    $('#tv_continuity_kill_switch, #tv_continuity_evaluation_diagnostics').on('change', onContinuitySafetyToggle);
+    $('#tv_continuity_export_inspection').on('click', onExportContinuityInspection);
+    $('#tv_continuity_legacy_preview').on('click', onPreviewLegacyContinuityImport);
+    $('#tv_continuity_run_evaluation').on('click', onRunContinuityEvaluation);
+    $('#tv_continuity_drafts').on('click', '.tv-continuity-draft-apply', onApplyContinuityDraft);
+    $('#tv_continuity_drafts').on('click', '.tv-continuity-draft-reject', onRejectContinuityDraft);
+    $('#tv_continuity_applied').on('click', '.tv-continuity-transaction-undo', onUndoContinuityTransaction);
+
+    // Legacy post-turn processor. It remains opt-in because it writes derived
+    // state after generation and must not run alongside another auto-writer.
+    $('#tv_post_turn_enabled').on('change', onPostTurnEnabledToggle);
+    $('#tv_post_turn_cooldown').on('change', onPostTurnCooldownChange);
+    $('#tv_post_turn_trackers, #tv_post_turn_facts, #tv_post_turn_scene_archive').on('change', onPostTurnScopeChange);
 
     // Compact tool prompts
     $('#tv_compact_tool_prompts').on('change', onCompactToolPromptsToggle);
@@ -978,6 +1015,14 @@ function onSidecarAutoRetrievalToggle() {
     saveSettingsDebounced();
 }
 
+function onSidecarRetrievalTimeoutChange() {
+    const settings = getSettings();
+    const timeout = Math.min(Math.max(Math.round(Number($(this).val()) || 3000), 100), 30000);
+    settings.sidecarRetrievalTimeoutMs = timeout;
+    $(this).val(timeout);
+    saveSettingsDebounced();
+}
+
 function onSidecarContextMessagesChange() {
     const settings = getSettings();
     settings.sidecarContextMessages = Number($(this).val()) || 10;
@@ -1004,8 +1049,221 @@ function onSidecarRetrievalSamplerChange() {
 function onSidecarPostGenWriterToggle() {
     const settings = getSettings();
     settings.sidecarPostGenWriter = $(this).prop('checked');
+    if (settings.sidecarPostGenWriter && settings.postTurnEnabled) {
+        settings.postTurnEnabled = false;
+        $('#tv_post_turn_enabled').prop('checked', false);
+        $('#tv_post_turn_options').hide();
+        toastr.info('Post-turn continuity processing was turned off to keep one automatic writer active.', 'TunnelVision');
+    }
     $('#tv_sidecar_writer_fields').toggle(settings.sidecarPostGenWriter);
     saveSettingsDebounced();
+}
+
+function onPostTurnEnabledToggle() {
+    const settings = getSettings();
+    settings.postTurnEnabled = $(this).prop('checked');
+    if (settings.postTurnEnabled && settings.sidecarPostGenWriter) {
+        settings.sidecarPostGenWriter = false;
+        $('#tv_sidecar_post_gen_writer').prop('checked', false);
+        $('#tv_sidecar_writer_fields').hide();
+        toastr.info('Auto-Write After Generation was turned off to keep one automatic writer active.', 'TunnelVision');
+    }
+    $('#tv_post_turn_options').toggle(settings.postTurnEnabled);
+    saveSettingsDebounced();
+}
+
+function onPostTurnCooldownChange() {
+    const settings = getSettings();
+    const cooldown = Math.min(Math.max(Math.round(Number($(this).val()) || 1), 1), 100);
+    settings.postTurnCooldown = cooldown;
+    $(this).val(cooldown);
+    saveSettingsDebounced();
+}
+
+function onPostTurnScopeChange() {
+    const settings = getSettings();
+    settings.postTurnUpdateTrackers = $('#tv_post_turn_trackers').prop('checked');
+    settings.postTurnExtractFacts = $('#tv_post_turn_facts').prop('checked');
+    settings.postTurnSceneArchive = $('#tv_post_turn_scene_archive').prop('checked');
+    saveSettingsDebounced();
+}
+
+function onContinuityEngineModeChange() {
+    const settings = getSettings();
+    const requested = $(this).val();
+    // Unified writes are deliberately unavailable until journal adapters and
+    // replay recovery are wired. Never persist an unsupported mode.
+    settings.continuityEngineMode = requested === 'shadow' ? 'shadow' : 'legacy';
+    $(this).val(settings.continuityEngineMode);
+    $('#tv_continuity_shadow_options').toggle(settings.continuityEngineMode === 'shadow');
+    saveSettingsDebounced();
+}
+
+function onContinuityShadowDiagnosticsToggle() {
+    const settings = getSettings();
+    settings.continuityShadowDiagnostics = $(this).prop('checked');
+    saveSettingsDebounced();
+}
+
+function onContextBundleModeChange() {
+    const settings = getSettings();
+    const mode = $(this).val();
+    settings.contextBundleMode = ['off', 'shadow', 'inject'].includes(mode) ? mode : 'off';
+    $('#tv_context_bundle_options').toggle(settings.contextBundleMode !== 'off');
+    saveSettingsDebounced();
+}
+function onContextBundleMaxCharsChange() {
+    const settings = getSettings();
+    settings.contextBundleMaxChars = Math.min(Math.max(Math.round(Number($(this).val()) || 8000), 500), 32000);
+    $(this).val(settings.contextBundleMaxChars);
+    saveSettingsDebounced();
+}
+function onContextBundleDiagnosticsToggle() {
+    const settings = getSettings();
+    settings.contextBundleDiagnostics = $(this).prop('checked');
+    saveSettingsDebounced();
+}
+function onContinuityAnalyzerModeChange() {
+    const settings = getSettings();
+    settings.continuityAnalyzerMode = ['shadow', 'drafts'].includes($(this).val()) ? $(this).val() : 'off';
+    if (settings.continuityAnalyzerMode !== 'drafts' && settings.continuityStateMode === 'drafts') {
+        settings.continuityStateMode = 'off';
+        $('#tv_continuity_state_mode').val('off');
+        $('#tv_continuity_state_options').hide();
+    }
+    $('#tv_continuity_analyzer_options').toggle(settings.continuityAnalyzerMode !== 'off');
+    saveSettingsDebounced();
+}
+function onContinuityAnalyzerMaxChangesChange() {
+    const settings = getSettings();
+    settings.continuityAnalyzerMaxChanges = Math.min(Math.max(Math.round(Number($(this).val()) || 5), 1), 10);
+    $(this).val(settings.continuityAnalyzerMaxChanges);
+    saveSettingsDebounced();
+}
+function onContinuityStateModeChange() {
+    const settings = getSettings();
+    if ($(this).val() === 'drafts' && settings.continuityAnalyzerMode !== 'drafts') {
+        settings.continuityStateMode = 'off';
+        $(this).val('off');
+        toastr.warning('Enable Continuity Analyzer: Draft Review before enabling typed state.', 'TunnelVision');
+    } else {
+        settings.continuityStateMode = $(this).val() === 'drafts' ? 'drafts' : 'off';
+    }
+    $('#tv_continuity_state_options').toggle(settings.continuityStateMode === 'drafts');
+    saveSettingsDebounced();
+}
+function onContinuityStateNumberChange() {
+    const settings = getSettings();
+    settings.continuityStateMoodInertia = Math.min(Math.max(Math.round(Number($('#tv_continuity_state_mood_inertia').val()) || 2), 1), 5);
+    settings.continuityStateBoundarySignals = Math.min(Math.max(Math.round(Number($('#tv_continuity_state_boundary_signals').val()) || 2), 2), 4);
+    $('#tv_continuity_state_mood_inertia').val(settings.continuityStateMoodInertia);
+    $('#tv_continuity_state_boundary_signals').val(settings.continuityStateBoundarySignals);
+    saveSettingsDebounced();
+}
+function onContinuityStateInBundleToggle() {
+    const settings = getSettings();
+    settings.continuityStateInBundle = $(this).prop('checked');
+    saveSettingsDebounced();
+}
+function onContinuityArcHibernationTurnsChange() {
+    const settings = getSettings();
+    settings.continuityArcHibernationTurns = Math.min(Math.max(Math.round(Number($(this).val()) || 12), 2), 200);
+    $(this).val(settings.continuityArcHibernationTurns);
+    saveSettingsDebounced();
+}
+function onContinuityArcAutoReactivateToggle() {
+    const settings = getSettings();
+    settings.continuityArcAutoReactivate = $(this).prop('checked');
+    saveSettingsDebounced();
+}
+function onContinuityMaintenanceModeChange() {
+    const settings = getSettings();
+    settings.continuityMaintenanceMode = $(this).val() === 'idle' ? 'idle' : 'off';
+    $('#tv_continuity_maintenance_options').toggle(settings.continuityMaintenanceMode === 'idle');
+    saveSettingsDebounced();
+}
+function onContinuityMaintenanceNumberChange() {
+    const settings = getSettings();
+    settings.continuityMaintenanceIdleMs = Math.min(Math.max(Math.round(Number($('#tv_continuity_maintenance_idle_ms').val()) || 60000), 5000), 900000);
+    settings.continuityMaintenanceReflectionLimit = Math.min(Math.max(Math.round(Number($('#tv_continuity_maintenance_reflection_limit').val()) || 6), 1), 20);
+    $('#tv_continuity_maintenance_idle_ms').val(settings.continuityMaintenanceIdleMs);
+    $('#tv_continuity_maintenance_reflection_limit').val(settings.continuityMaintenanceReflectionLimit);
+    saveSettingsDebounced();
+}
+function onContinuityReflectionsInBundleToggle() {
+    const settings = getSettings();
+    settings.continuityReflectionsInBundle = $(this).prop('checked');
+    saveSettingsDebounced();
+}
+function onRunContinuityMaintenance() {
+    try {
+        const result = runContinuityMaintenance();
+        toastr.info(result.created?.length ? `Created ${result.created.length} reflection(s).` : 'No new reflections were needed.', 'TunnelVision');
+    } catch (error) {
+        toastr.error(error.message, 'TunnelVision');
+    }
+}
+function onContinuitySafetyToggle() {
+    const settings = getSettings();
+    settings.continuitySafetyKillSwitch = $('#tv_continuity_kill_switch').prop('checked');
+    settings.continuityEvaluationDiagnostics = $('#tv_continuity_evaluation_diagnostics').prop('checked');
+    saveSettingsDebounced();
+}
+function onExportContinuityInspection() {
+    try { downloadContinuityInspection(); toastr.success('Continuity inspection exported.', 'TunnelVision'); }
+    catch (error) { toastr.error(error.message, 'TunnelVision'); }
+}
+async function onPreviewLegacyContinuityImport() {
+    const $output = $('#tv_continuity_legacy_preview_output').empty();
+    try {
+        const preview = await previewLegacyContinuityImport(getSelectedLorebook());
+        const label = `${preview.entries.length} legacy entries would be imported as provenance-linked claims${preview.truncated ? ' (preview capped)' : ''}.`;
+        $output.text(label);
+    } catch (error) { toastr.error(error.message, 'TunnelVision'); }
+}
+function onRunContinuityEvaluation() {
+    try {
+        const report = runCurrentChatShadowEvaluation();
+        $('#tv_continuity_evaluation_output').text(`${report.validDrafts}/${report.drafts} draft(s) valid · ${report.bundleItems} bundle item(s) · ${report.bundleChars} chars${report.paused ? ' · pipeline paused' : ''}`);
+        toastr.info(report.ready ? 'Shadow evaluation is ready.' : 'Shadow evaluation found stale drafts.', 'TunnelVision');
+    } catch (error) { toastr.error(error.message, 'TunnelVision'); }
+}
+function renderContinuityDrafts() {
+    const $container = $('#tv_continuity_drafts').empty();
+    for (const draft of getContinuityDrafts()) {
+        const count = draft.patch?.changes?.length || 0;
+        const typedCount = draft.patch?.state?.records?.length || 0;
+        const summary = draft.patch?.changes?.map(change => `${change.kind}: ${change.summary}`).join(' · ') || (typedCount ? `${typedCount} typed state record(s)` : 'Invalid draft');
+        const $card = $('<div class="tv-sidecar-draft"></div>');
+        $card.append($('<div></div>').text(`${count} change(s), ${typedCount} typed state record(s): ${summary}`));
+        const $actions = $('<div class="tv-sidecar-draft-actions"></div>');
+        $actions.append($('<button type="button" class="tv-btn tv-btn-primary tv-continuity-draft-apply">Apply</button>').attr('data-draft-id', draft.id));
+        $actions.append($('<button type="button" class="tv-btn tv-btn-secondary tv-continuity-draft-reject">Reject</button>').attr('data-draft-id', draft.id));
+        $card.append($actions); $container.append($card);
+    }
+}
+function renderAppliedContinuityTransactions() {
+    const $container = $('#tv_continuity_applied').empty();
+    for (const transaction of getAppliedContinuityTransactions()) {
+        const $card = $('<div class="tv-sidecar-draft"></div>');
+        $card.append($('<div></div>').text(`${transaction.changeCount} applied change(s) in ${transaction.bookName}`));
+        const $actions = $('<div class="tv-sidecar-draft-actions"></div>');
+        $actions.append($('<button type="button" class="tv-btn tv-btn-secondary tv-continuity-transaction-undo">Undo</button>').attr('data-transaction-id', transaction.transactionId));
+        $card.append($actions); $container.append($card);
+    }
+}
+async function onApplyContinuityDraft() {
+    const id = $(this).attr('data-draft-id'); const $button = $(this).prop('disabled', true);
+    try { await approveContinuityDraft(id); toastr.success('Applied continuity draft.', 'TunnelVision'); }
+    catch (error) { toastr.error(error.message, 'TunnelVision'); $button.prop('disabled', false); }
+    renderContinuityDrafts();
+}
+function onRejectContinuityDraft() { rejectContinuityDraft($(this).attr('data-draft-id')); renderContinuityDrafts(); }
+async function onUndoContinuityTransaction() {
+    const id = $(this).attr('data-transaction-id'); const $button = $(this).prop('disabled', true);
+    try { await undoContinuityTransaction(id); toastr.success('Undid continuity changes.', 'TunnelVision'); }
+    catch (error) { toastr.error(error.message, 'TunnelVision'); $button.prop('disabled', false); }
+    renderAppliedContinuityTransactions();
 }
 
 function onCompactToolPromptsToggle() {
@@ -1136,6 +1394,7 @@ function populateConnectionProfiles() {
     const autoRetrieval = settings.sidecarAutoRetrieval === true;
     $('#tv_sidecar_auto_retrieval').prop('checked', autoRetrieval);
     $('#tv_sidecar_retrieval_fields').toggle(autoRetrieval);
+    $('#tv_sidecar_retrieval_timeout').val(settings.sidecarRetrievalTimeoutMs ?? 3000);
     $('#tv_sidecar_context_messages').val(settings.sidecarContextMessages ?? 10);
     $('#tv_sidecar_max_injection').val(settings.sidecarMaxInjectionTokens ?? 4000);
     const retrievalSampler = resolveTaskSampler(settings, 'retrieval');
@@ -1161,6 +1420,46 @@ function populateConnectionProfiles() {
     $('#tv_sidecar_writer_temp_val').text(writerSampler.temperature.toFixed(2));
     $('#tv_sidecar_writer_max_tokens').val(writerSampler.maxTokens);
     renderSidecarWriteDrafts();
+
+    const postTurnEnabled = settings.postTurnEnabled === true;
+    $('#tv_post_turn_enabled').prop('checked', postTurnEnabled);
+    $('#tv_post_turn_options').toggle(postTurnEnabled);
+    $('#tv_post_turn_cooldown').val(settings.postTurnCooldown ?? 1);
+    $('#tv_post_turn_trackers').prop('checked', settings.postTurnUpdateTrackers !== false);
+    $('#tv_post_turn_facts').prop('checked', settings.postTurnExtractFacts !== false);
+    $('#tv_post_turn_scene_archive').prop('checked', settings.postTurnSceneArchive !== false);
+
+    const continuityMode = settings.continuityEngineMode === 'shadow' ? 'shadow' : 'legacy';
+    $('#tv_continuity_engine_mode').val(continuityMode);
+    $('#tv_continuity_shadow_options').toggle(continuityMode === 'shadow');
+    $('#tv_continuity_shadow_diagnostics').prop('checked', settings.continuityShadowDiagnostics === true);
+    const bundleMode = ['shadow', 'inject'].includes(settings.contextBundleMode) ? settings.contextBundleMode : 'off';
+    $('#tv_context_bundle_mode').val(bundleMode);
+    $('#tv_context_bundle_options').toggle(bundleMode !== 'off');
+    $('#tv_context_bundle_max_chars').val(settings.contextBundleMaxChars ?? 8000);
+    $('#tv_context_bundle_diagnostics').prop('checked', settings.contextBundleDiagnostics === true);
+    const analyzerMode = ['shadow', 'drafts'].includes(settings.continuityAnalyzerMode) ? settings.continuityAnalyzerMode : 'off';
+    $('#tv_continuity_analyzer_mode').val(analyzerMode);
+    $('#tv_continuity_analyzer_options').toggle(analyzerMode !== 'off');
+    $('#tv_continuity_analyzer_max_changes').val(settings.continuityAnalyzerMaxChanges ?? 5);
+    const stateMode = settings.continuityStateMode === 'drafts' ? 'drafts' : 'off';
+    $('#tv_continuity_state_mode').val(stateMode);
+    $('#tv_continuity_state_options').toggle(stateMode === 'drafts');
+    $('#tv_continuity_state_mood_inertia').val(settings.continuityStateMoodInertia ?? 2);
+    $('#tv_continuity_state_boundary_signals').val(settings.continuityStateBoundarySignals ?? 2);
+    $('#tv_continuity_state_in_bundle').prop('checked', settings.continuityStateInBundle !== false);
+    $('#tv_continuity_arc_hibernation_turns').val(settings.continuityArcHibernationTurns ?? 12);
+    $('#tv_continuity_arc_auto_reactivate').prop('checked', settings.continuityArcAutoReactivate !== false);
+    const maintenanceMode = settings.continuityMaintenanceMode === 'idle' ? 'idle' : 'off';
+    $('#tv_continuity_maintenance_mode').val(maintenanceMode);
+    $('#tv_continuity_maintenance_options').toggle(maintenanceMode === 'idle');
+    $('#tv_continuity_maintenance_idle_ms').val(settings.continuityMaintenanceIdleMs ?? 60000);
+    $('#tv_continuity_maintenance_reflection_limit').val(settings.continuityMaintenanceReflectionLimit ?? 6);
+    $('#tv_continuity_reflections_in_bundle').prop('checked', settings.continuityReflectionsInBundle === true);
+    $('#tv_continuity_kill_switch').prop('checked', settings.continuitySafetyKillSwitch === true);
+    $('#tv_continuity_evaluation_diagnostics').prop('checked', settings.continuityEvaluationDiagnostics === true);
+    renderContinuityDrafts();
+    renderAppliedContinuityTransactions();
 }
 
 // ─── Tree Management ─────────────────────────────────────────────

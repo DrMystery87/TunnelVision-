@@ -336,6 +336,9 @@ export const SETTING_DEFAULTS = {
     toolPromptOverrides: {},
     // Sidecar auto-retrieval (pre-gen)
     sidecarAutoRetrieval: false,
+    // Maximum time the legacy pre-generation sidecar may delay a response.
+    // A timeout continues generation without sidecar context.
+    sidecarRetrievalTimeoutMs: 3000,
     sidecarContextMessages: 10,
     sidecarMaxInjectionTokens: 4000,
     // LLM-evaluable conditional triggers (evaluated during sidecar retrieval)
@@ -364,6 +367,27 @@ export const SETTING_DEFAULTS = {
     targetLanguage: '',
     // Compact tool prompts: register one guide tool + one-liner descriptions to save tokens
     compactToolPrompts: true,
+    // Unified continuity-engine rollout. Phase 2 exposes shadow mode only;
+    // it validates revisions without changing prompts or lorebooks.
+    continuityEngineMode: 'legacy',
+    continuityShadowDiagnostics: false,
+    contextBundleMode: 'off',
+    contextBundleMaxChars: 8000,
+    contextBundleDiagnostics: false,
+    continuityAnalyzerMode: 'off',
+    continuityAnalyzerMaxChanges: 5,
+    continuityStateMode: 'off',
+    continuityStateMoodInertia: 2,
+    continuityStateBoundarySignals: 2,
+    continuityStateInBundle: true,
+    continuityArcHibernationTurns: 12,
+    continuityArcAutoReactivate: true,
+    continuityMaintenanceMode: 'off',
+    continuityMaintenanceIdleMs: 60000,
+    continuityMaintenanceReflectionLimit: 6,
+    continuityReflectionsInBundle: false,
+    continuitySafetyKillSwitch: false,
+    continuityEvaluationDiagnostics: false,
 };
 
 function ensureSettings() {

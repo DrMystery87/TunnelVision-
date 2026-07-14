@@ -31,7 +31,9 @@ import { initActivityFeed } from './activity-feed.js';
 import { initCommands } from './commands.js';
 import { initAutoSummary } from './auto-summary.js';
 import { initPostTurnProcessor } from './post-turn-processor.js';
-import { runSidecarRetrieval } from './sidecar-retrieval.js';
+import { clearSidecarRetrievalPrompt, runSidecarRetrieval } from './sidecar-retrieval.js';
+import { beginContinuityTurn, cancelAllContinuityTurns, cancelContinuityTurn, completeContinuityTurn } from './turn-coordinator.js';
+import { analyzeContinuityTurn } from './continuity-analyzer.js';
 import { runSidecarWriter } from './sidecar-writer.js';
 import { applyPromptInjectionPlan, buildPromptInjectionPlan, clearPromptInjectionSlots } from './prompt-injection-service.js';
 import { separateConditions, isEvaluableCondition, formatCondition, EVALUABLE_TYPES, CONDITION_LABELS, getKeywordProbability, setKeywordProbability } from './conditions.js';
@@ -50,6 +52,7 @@ let _generationInProgress = false;
 let _toolRecursionDepth = 0;
 let _skipPreCommandGeneration = false;
 let _stateRefreshTimer = null;
+let _sidecarRetrievalAbortController = null;
 
 async function init() {
     // Ensure settings exist
@@ -151,6 +154,10 @@ async function init() {
             _skipPreCommandGeneration = false;
             _keywordTriggeredUids.clear();
             window.TunnelVision_isRecursiveToolPass = false;
+            _sidecarRetrievalAbortController?.abort();
+            _sidecarRetrievalAbortController = null;
+            clearSidecarRetrievalPrompt();
+            cancelContinuityTurn('generation-ended');
         });
     } else {
         if (event_types.GENERATION_STOPPED) {
@@ -160,6 +167,10 @@ async function init() {
                 _toolRecursionDepth = 0;
                 _skipPreCommandGeneration = false;
                 window.TunnelVision_isRecursiveToolPass = false;
+                _sidecarRetrievalAbortController?.abort();
+                _sidecarRetrievalAbortController = null;
+                clearSidecarRetrievalPrompt();
+                cancelContinuityTurn('generation-stopped');
             });
         }
     }
@@ -187,6 +198,7 @@ async function init() {
 }
 
 async function onChatChanged() {
+    cancelAllContinuityTurns('chat-changed');
     await refreshRuntimeState('chat changed');
 }
 
@@ -851,6 +863,8 @@ function isPendingSlashCommandGeneration(type) {
 
 function onGenerationAfterCommands(_type, _opts, dryRun) {
     if (dryRun) return;
+
+    beginContinuityTurn({ type, dryRun });
     _skipPreCommandGeneration = false;
 }
 
@@ -871,6 +885,7 @@ async function onGenerationStarted(type, opts, dryRun) {
         _toolRecursionDepth = 0;
         window.TunnelVision_isRecursiveToolPass = false;
         setExtensionPrompt(TV_PROMPT_KEY, '', extension_prompt_types.IN_CHAT, 0, false, extension_prompt_roles.SYSTEM);
+        clearSidecarRetrievalPrompt();
         console.debug('[TunnelVision] Pending slash command detected — skipping pre-command TV sidecar/tool work');
         return;
     }
@@ -905,6 +920,7 @@ async function onGenerationStarted(type, opts, dryRun) {
     // be writing the actual response. Then skip all other heavy work.
     if (isRecursiveToolPass) {
         clearPromptInjectionSlots();
+        clearSidecarRetrievalPrompt();
         return;
     }
 
@@ -928,10 +944,31 @@ async function onGenerationStarted(type, opts, dryRun) {
 
     // Sidecar auto-retrieval: pre-fetch relevant entries before generation (first pass only)
     if (settings.sidecarAutoRetrieval && settings.globalEnabled !== false) {
+        _sidecarRetrievalAbortController?.abort();
+        const controller = new AbortController();
+        _sidecarRetrievalAbortController = controller;
+        const timeoutMs = Math.min(Math.max(Number(settings.sidecarRetrievalTimeoutMs) || 3000, 100), 30000);
+        let timeoutId = null;
         try {
-            await runSidecarRetrieval();
+            await Promise.race([
+                runSidecarRetrieval({ signal: controller.signal }),
+                new Promise(resolve => {
+                    timeoutId = window.setTimeout(() => {
+                        controller.abort();
+                        clearSidecarRetrievalPrompt();
+                        console.warn(`[TunnelVision] Sidecar auto-retrieval exceeded ${timeoutMs}ms; continuing without sidecar context.`);
+                        resolve();
+                    }, timeoutMs);
+                }),
+            ]);
         } catch (err) {
             console.error('[TunnelVision] Sidecar auto-retrieval error:', err);
+            clearSidecarRetrievalPrompt();
+        } finally {
+            if (timeoutId !== null) window.clearTimeout(timeoutId);
+            if (_sidecarRetrievalAbortController === controller) {
+                _sidecarRetrievalAbortController = null;
+            }
         }
     }
 
@@ -996,6 +1033,8 @@ async function onMessageReceived(_messageId, type) {
     _generationInProgress = false;
     _skipPreCommandGeneration = false;
     window.TunnelVision_isRecursiveToolPass = false;
+    completeContinuityTurn({ messageId: _messageId, type });
+    void analyzeContinuityTurn({ messageId: _messageId }).catch(error => console.error('[TunnelVision] Continuity analyzer failed:', error));
 
     try {
         await flushPendingSummaryHide();
@@ -1010,6 +1049,13 @@ async function onMessageReceived(_messageId, type) {
 
     const settings = getSettings();
     if (!settings.sidecarPostGenWriter || settings.globalEnabled === false) return;
+    // Post-turn processing has precedence if an older saved configuration has
+    // both legacy writers enabled. The UI keeps them mutually exclusive, but
+    // this runtime gate protects migrated or manually edited settings too.
+    if (settings.postTurnEnabled) {
+        console.warn('[TunnelVision] Sidecar writer skipped because post-turn continuity processing is enabled.');
+        return;
+    }
 
     // In group chats, debounce: wait 800ms after the last MESSAGE_RECEIVED
     // before firing the sidecar writer, so we only run once after the
