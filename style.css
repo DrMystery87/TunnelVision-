@@ -161,6 +161,18 @@
     transform: rotate(180deg);
 }
 
+#tv_continuity_card > summary {
+    list-style: none;
+}
+
+#tv_continuity_card > summary::-webkit-details-marker {
+    display: none;
+}
+
+#tv_continuity_card[open] .tv-collapse-icon {
+    transform: rotate(180deg);
+}
+
 .tv-card-body {
     padding: 14px;
 }

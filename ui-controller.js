@@ -263,12 +263,6 @@ export function bindUIEvents() {
     $('#tv_book_permission').on('change', onBookPermissionChange);
     $('#tv_book_injection_mode').on('change', onBookInjectionModeChange);
 
-    // Continuity controls stay compact until explicitly opened.
-    $('#tv_continuity_header').on('click', function () {
-        $(this).toggleClass('expanded');
-        $(this).next('.tv-card-body').slideToggle(200);
-    });
-
     // Backup & Restore collapsible header
     $('#tv_backup_header').on('click', function () {
         $(this).toggleClass('expanded');
