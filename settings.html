@@ -6,7 +6,7 @@
                 <span class="tv-header-title">TunnelVision</span>
                 <span class="tv-header-subtitle">Reasoning-based lorebook retrieval</span>
             </div>
-            <div class="tv-header-badge">v0.2.1</div>
+            <div class="tv-header-badge">v0.2.2</div>
             <div class="tv-header-chevron"><i class="fa-solid fa-chevron-down"></i></div>
         </div>
         <div class="tv-settings-body" style="display:none;">
@@ -35,6 +35,20 @@
             </div>
 
             <div id="tv_main_controls" style="display:none;">
+
+                <!-- Continuity controls stay available without a Sidecar profile. -->
+                <div class="tv-card" id="tv_continuity_card">
+                    <div class="tv-card-header">
+                        <i class="fa-solid fa-route"></i>
+                        <span>Continuity</span>
+                    </div>
+                    <div class="tv-card-body">
+                        <div class="tv-help-text" style="margin-bottom: 8px;">
+                            Optional, review-gated continuity tools. All modes default to off or non-writing validation.
+                        </div>
+                        <div id="tv_continuity_controls_mount"></div>
+                    </div>
+                </div>
 
                 <!-- Lorebook Selection Section -->
                 <div class="tv-card">
@@ -897,6 +911,7 @@
                                     </div>
                                 </div>
                                 <!-- Unified Continuity Engine rollout -->
+                                <div id="tv_continuity_controls">
                                 <div style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 8px;">
                                     <div class="tv-label">Continuity Engine</div>
                                     <select id="tv_continuity_engine_mode" class="tv-select">
@@ -979,6 +994,7 @@
                                         <div class="tv-help-text" style="margin-top:8px;">Applied continuity changes (journal-backed; undo removes only entries created by the selected draft).</div>
                                         <div id="tv_continuity_applied" class="tv-entry-list" style="margin-top:4px;"></div>
                                     </div>
+                                </div>
                                 </div>
                             </div>
                         </div>

@@ -83,6 +83,13 @@
     padding: 12px;
 }
 
+/* The rollout controls are re-parented from Sidecar settings into their own card. */
+#tv_continuity_controls > div:first-child {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+    border-top: 0 !important;
+}
+
 /* ===== Description ===== */
 .tv-description {
     font-size: 12px;
