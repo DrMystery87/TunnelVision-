@@ -56,15 +56,6 @@ import { runCurrentChatShadowEvaluation } from './continuity-evaluation.js';
 
 let currentLorebook = null;
 
-function mountContinuityControls() {
-    const $mount = $('#tv_continuity_controls_mount');
-    const $controls = $('#tv_continuity_controls');
-
-    if ($mount.length && $controls.length && !$controls.parent().is($mount)) {
-        $mount.append($controls);
-    }
-}
-
 function selectCurrentLorebook(bookName) {
     currentLorebook = bookName || null;
     setSelectedLorebook(currentLorebook);
@@ -87,8 +78,6 @@ function syncSelectedLorebook() {
 // ─── Event Bindings ──────────────────────────────────────────────
 
 export function bindUIEvents() {
-    mountContinuityControls();
-
     // Main collapsible header
     $('#tv_header_toggle').on('click', function () {
         $(this).toggleClass('expanded');
@@ -274,6 +263,12 @@ export function bindUIEvents() {
     $('#tv_book_permission').on('change', onBookPermissionChange);
     $('#tv_book_injection_mode').on('change', onBookInjectionModeChange);
 
+    // Continuity controls stay compact until explicitly opened.
+    $('#tv_continuity_header').on('click', function () {
+        $(this).toggleClass('expanded');
+        $(this).next('.tv-card-body').slideToggle(200);
+    });
+
     // Backup & Restore collapsible header
     $('#tv_backup_header').on('click', function () {
         $(this).toggleClass('expanded');
@@ -291,8 +286,6 @@ export function bindUIEvents() {
 // ─── Refresh / Init ──────────────────────────────────────────────
 
 export function refreshUI() {
-    mountContinuityControls();
-
     const settings = getSettings();
     const globalEnabled = settings.globalEnabled !== false;
     syncSelectedLorebook();

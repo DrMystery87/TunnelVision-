@@ -83,7 +83,7 @@
     padding: 12px;
 }
 
-/* The rollout controls are re-parented from Sidecar settings into their own card. */
+/* The rollout controls start flush inside their dedicated Continuity card. */
 #tv_continuity_controls > div:first-child {
     margin-top: 0 !important;
     padding-top: 0 !important;

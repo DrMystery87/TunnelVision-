@@ -6,7 +6,7 @@
                 <span class="tv-header-title">TunnelVision</span>
                 <span class="tv-header-subtitle">Reasoning-based lorebook retrieval</span>
             </div>
-            <div class="tv-header-badge">v0.2.2</div>
+            <div class="tv-header-badge">v0.2.3</div>
             <div class="tv-header-chevron"><i class="fa-solid fa-chevron-down"></i></div>
         </div>
         <div class="tv-settings-body" style="display:none;">
@@ -35,20 +35,6 @@
             </div>
 
             <div id="tv_main_controls" style="display:none;">
-
-                <!-- Continuity controls stay available without a Sidecar profile. -->
-                <div class="tv-card" id="tv_continuity_card">
-                    <div class="tv-card-header">
-                        <i class="fa-solid fa-route"></i>
-                        <span>Continuity</span>
-                    </div>
-                    <div class="tv-card-body">
-                        <div class="tv-help-text" style="margin-bottom: 8px;">
-                            Optional, review-gated continuity tools. All modes default to off or non-writing validation.
-                        </div>
-                        <div id="tv_continuity_controls_mount"></div>
-                    </div>
-                </div>
 
                 <!-- Lorebook Selection Section -->
                 <div class="tv-card">
@@ -910,8 +896,24 @@
                                         <label class="tv-checkbox-row"><input id="tv_post_turn_scene_archive" type="checkbox" checked /><span>Archive completed scenes</span></label>
                                     </div>
                                 </div>
-                                <!-- Unified Continuity Engine rollout -->
-                                <div id="tv_continuity_controls">
+                                <!-- The Sidecar profile controls end here. Continuity is available independently. -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Unified Continuity Engine rollout -->
+                <div class="tv-card" id="tv_continuity_card">
+                    <div class="tv-card-header tv-card-header-collapsible" id="tv_continuity_header">
+                        <i class="fa-solid fa-route"></i>
+                        <span>Continuity</span>
+                        <i class="fa-solid fa-chevron-down tv-collapse-icon"></i>
+                    </div>
+                    <div class="tv-card-body" style="display:none;">
+                        <div class="tv-help-text" style="margin-bottom: 8px;">
+                            Optional, review-gated continuity tools. All modes default to off or non-writing validation.
+                        </div>
+                        <div id="tv_continuity_controls">
                                 <div style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 8px;">
                                     <div class="tv-label">Continuity Engine</div>
                                     <select id="tv_continuity_engine_mode" class="tv-select">
@@ -995,10 +997,8 @@
                                         <div id="tv_continuity_applied" class="tv-entry-list" style="margin-top:4px;"></div>
                                     </div>
                                 </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
+                </div>
                 </div>
 
                 <!-- Backup & Restore -->
@@ -1046,4 +1046,5 @@
     <!-- Hidden file input for import -->
     <input type="file" id="tv_import_file" accept=".json" style="display:none;" />
     <input type="file" id="tv_bulk_import_file" accept=".json" style="display:none;" />
+</div>
 </div>
