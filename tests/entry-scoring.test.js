@@ -43,6 +43,10 @@ beforeEach(() => {
     mockChat.length = 0;
     Object.keys(mockMetadata).forEach(key => delete mockMetadata[key]);
     mockState.throwContext = false;
+    globalThis.__tunnelvisionVitestContext = () => {
+        if (mockState.throwContext) throw new Error('context unavailable');
+        return { chat: mockChat, chatMetadata: mockMetadata };
+    };
     vi.clearAllMocks();
 });
 

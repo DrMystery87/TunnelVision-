@@ -10,6 +10,18 @@ import { loadWorldInfo } from '../../../world-info.js';
 
 const EXTENSION_NAME = 'tunnelvision';
 const TRACKER_TITLE_PREFIX = /^\[tracker[^\]]*\]/i;
+const SUMMARY_TITLE_PREFIX = /^\[(?:(?:scene|act|story)\s+)?summary[^\]]*\]/i;
+
+function isCanonicalTrackerUid(uid) {
+    return typeof uid === 'number' && Number.isSafeInteger(uid) && uid >= 0;
+}
+
+function parseLegacyTrackerUid(uid) {
+    if (isCanonicalTrackerUid(uid)) return uid;
+    if (typeof uid !== 'string' || !/^\d+$/.test(uid)) return null;
+    const numericUid = Number(uid);
+    return isCanonicalTrackerUid(numericUid) ? numericUid : null;
+}
 
 /**
  * @typedef {Object} TreeNode
@@ -276,6 +288,10 @@ export const SETTING_DEFAULTS = {
     connectionProfile: null,
     sidecarTemperature: 0.2,
     sidecarMaxTokens: 8192,
+    sidecarTaskSamplers: {
+        retrieval: { temperature: 0.1, maxTokens: 2048 },
+        writer: { temperature: 0.2, maxTokens: 4096 },
+    },
     disabledTools: {},
     searchMode: 'traversal',
     collapsedDepth: 2,
@@ -308,7 +324,15 @@ export const SETTING_DEFAULTS = {
     allowKeywordTriggers: false,
     autoDetectPattern: '',
     backgroundPromptAddendum: '',
-    confirmTools: {},
+    confirmTools: {
+        TunnelVision_Remember: true,
+        TunnelVision_Update: true,
+        TunnelVision_Forget: true,
+        TunnelVision_Summarize: true,
+        TunnelVision_Reorganize: true,
+        TunnelVision_MergeSplit: true,
+        TunnelVision_Notebook: true,
+    },
     toolPromptOverrides: {},
     // Sidecar auto-retrieval (pre-gen)
     sidecarAutoRetrieval: false,
@@ -318,8 +342,10 @@ export const SETTING_DEFAULTS = {
     conditionalTriggersEnabled: true,
     // Sidecar post-gen writer
     sidecarPostGenWriter: false,
+    sidecarWriterMode: 'review',
     sidecarWriterContextMessages: 15,
     sidecarWriterMaxOps: 5,
+    sidecarWriteDrafts: [],
     // Post-turn processor (tracker updates, fact extraction, scene archiving)
     postTurnEnabled: false,
     postTurnCooldown: 1,
@@ -368,6 +394,10 @@ function ensureSettings() {
         didMutate = true;
     }
 
+    if (normalizeSidecarSafetySettings(s)) {
+        didMutate = true;
+    }
+
     for (const [bookName, tree] of Object.entries(s.trees || {})) {
         if (normalizeTree(tree, bookName)) {
             didMutate = true;
@@ -382,6 +412,35 @@ function ensureSettings() {
 export function getSettings() {
     ensureSettings();
     return extension_settings[EXTENSION_NAME];
+}
+
+function normalizeSidecarSafetySettings(settings) {
+    let mutated = false;
+    const confirmationDefaults = SETTING_DEFAULTS.confirmTools;
+    if (!settings.confirmTools || typeof settings.confirmTools !== 'object' || Array.isArray(settings.confirmTools)) {
+        settings.confirmTools = {};
+        mutated = true;
+    }
+    for (const [toolName, enabled] of Object.entries(confirmationDefaults)) {
+        if (settings.confirmTools[toolName] === undefined) {
+            settings.confirmTools[toolName] = enabled;
+            mutated = true;
+        }
+    }
+
+    if (settings.sidecarWriterMode !== 'auto' && settings.sidecarWriterMode !== 'review') {
+        settings.sidecarWriterMode = 'review';
+        mutated = true;
+    }
+    if (!settings.sidecarTaskSamplers || typeof settings.sidecarTaskSamplers !== 'object' || Array.isArray(settings.sidecarTaskSamplers)) {
+        settings.sidecarTaskSamplers = JSON.parse(JSON.stringify(SETTING_DEFAULTS.sidecarTaskSamplers));
+        mutated = true;
+    }
+    if (!Array.isArray(settings.sidecarWriteDrafts)) {
+        settings.sidecarWriteDrafts = [];
+        mutated = true;
+    }
+    return mutated;
 }
 
 function normalizeTree(tree, lorebookName) {
@@ -467,7 +526,7 @@ function normalizeTrackerSettings(settings) {
     let mutated = false;
     for (const [bookName, rawUids] of Object.entries(trackerUids)) {
         const next = Array.isArray(rawUids)
-            ? [...new Set(rawUids.map(uid => Number(uid)).filter(uid => Number.isFinite(uid)))]
+            ? [...new Set(rawUids.map(parseLegacyTrackerUid).filter(uid => uid !== null))]
             : [];
 
         if (next.length === 0) {
@@ -663,8 +722,6 @@ export function isTrackerTitle(title) {
     return TRACKER_TITLE_PREFIX.test(String(title || '').trim());
 }
 
-const SUMMARY_TITLE_PREFIX = /^\[(?:scene\s+)?summary[^\]]*\]/i;
-
 export function isSummaryTitle(title) {
     return SUMMARY_TITLE_PREFIX.test(String(title || '').trim());
 }
@@ -674,22 +731,21 @@ export function getTrackerUids(bookName) {
 }
 
 export function isTrackerUid(bookName, uid) {
-    return getTrackerSet(bookName).has(Number(uid));
+    return isCanonicalTrackerUid(uid) && getTrackerSet(bookName).has(uid);
 }
 
 export function setTrackerUid(bookName, uid, tracked, { save = true } = {}) {
+    if (!isCanonicalTrackerUid(uid)) return false;
     const trackerSet = getTrackerSet(bookName);
-    const numericUid = Number(uid);
-    if (!Number.isFinite(numericUid)) return false;
 
-    const hadUid = trackerSet.has(numericUid);
+    const hadUid = trackerSet.has(uid);
     if (tracked) {
-        trackerSet.add(numericUid);
+        trackerSet.add(uid);
     } else {
-        trackerSet.delete(numericUid);
+        trackerSet.delete(uid);
     }
 
-    if (hadUid === trackerSet.has(numericUid)) {
+    if (hadUid === trackerSet.has(uid)) {
         return false;
     }
 

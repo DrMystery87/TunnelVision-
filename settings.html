@@ -641,6 +641,10 @@
                                     <input type="checkbox" class="tv_tool_confirm" data-tool="TunnelVision_MergeSplit" />
                                     <span>Merge/Split — combining or splitting entries</span>
                                 </label>
+                                <label class="tv-checkbox-row">
+                                    <input type="checkbox" class="tv_tool_confirm" data-tool="TunnelVision_Notebook" />
+                                    <span>Notebook — writing persistent AI scratchpad notes</span>
+                                </label>
                             </div>
                         </div>
 
@@ -805,6 +809,16 @@
                                                 <input type="number" id="tv_sidecar_max_injection" class="tv-number-input" min="500" max="16000" step="500" value="4000" />
                                             </div>
                                         </div>
+                                        <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+                                            <div style="flex: 1;">
+                                                <label class="tv-label" for="tv_sidecar_retrieval_temperature">Retrieval Temperature: <span id="tv_sidecar_retrieval_temp_val">0.10</span></label>
+                                                <input type="range" id="tv_sidecar_retrieval_temperature" min="0" max="1" step="0.05" value="0.1" />
+                                            </div>
+                                            <div style="flex: 1;">
+                                                <label class="tv-label" for="tv_sidecar_retrieval_max_tokens">Retrieval Max Tokens</label>
+                                                <input type="number" id="tv_sidecar_retrieval_max_tokens" class="tv-number-input" min="256" max="32768" step="256" value="2048" />
+                                            </div>
+                                        </div>
                                         <div style="margin-top: 8px;">
                                             <label class="tv-toggle">
                                                 <input id="tv_conditional_triggers" type="checkbox" />
@@ -828,16 +842,34 @@
                                         After each response, the sidecar reviews the conversation and automatically creates or updates lorebook entries for significant events, character changes, and new facts.
                                     </div>
                                     <div id="tv_sidecar_writer_fields" style="display: none; margin-top: 8px;">
+                                        <div class="tv-number-row" style="margin-bottom: 8px;">
+                                            <label class="tv-number-label" for="tv_sidecar_writer_mode">Write mode:</label>
+                                            <select id="tv_sidecar_writer_mode" class="tv-select">
+                                                <option value="review">Review drafts before writing (recommended)</option>
+                                                <option value="auto">Apply automatically</option>
+                                            </select>
+                                        </div>
                                         <div style="display: flex; gap: 8px; align-items: center;">
                                             <div style="flex: 1;">
                                                 <label class="tv-label" for="tv_sidecar_writer_context">Chat Context (messages)</label>
-                                                <input type="number" id="tv_sidecar_writer_context" class="tv-number-input" min="1" max="50" step="1" value="15" />
+                                                <input id="tv_sidecar_writer_context" type="number" class="tv-number-input" min="1" max="50" step="1" value="15" />
                                             </div>
                                             <div style="flex: 1;">
                                                 <label class="tv-label" for="tv_sidecar_writer_max_ops">Max Operations Per Turn</label>
-                                                <input type="number" id="tv_sidecar_writer_max_ops" class="tv-number-input" min="1" max="10" step="1" value="5" />
+                                                <input id="tv_sidecar_writer_max_ops" type="number" class="tv-number-input" min="1" max="10" step="1" value="5" />
                                             </div>
                                         </div>
+                                        <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+                                            <div style="flex: 1;">
+                                                <label class="tv-label" for="tv_sidecar_writer_temperature">Writer Temperature: <span id="tv_sidecar_writer_temp_val">0.20</span></label>
+                                                <input type="range" id="tv_sidecar_writer_temperature" min="0" max="1" step="0.05" value="0.2" />
+                                            </div>
+                                            <div style="flex: 1;">
+                                                <label class="tv-label" for="tv_sidecar_writer_max_tokens">Writer Max Tokens</label>
+                                                <input type="number" id="tv_sidecar_writer_max_tokens" class="tv-number-input" min="256" max="32768" step="256" value="4096" />
+                                            </div>
+                                        </div>
+                                        <div id="tv_sidecar_writer_drafts" class="tv-entry-list" style="margin-top: 10px;"></div>
                                     </div>
                                 </div>
                             </div>

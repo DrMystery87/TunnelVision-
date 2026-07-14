@@ -66,6 +66,11 @@ const META_KEY = 'tunnelvision_summary_hierarchy';
 beforeEach(() => {
     for (const key of Object.keys(mockChatMetadata)) delete mockChatMetadata[key];
     vi.clearAllMocks();
+    globalThis.__tunnelvisionVitestContext = {
+        chatMetadata: mockChatMetadata,
+        saveMetadataDebounced: vi.fn(),
+        chat: [],
+    };
 });
 
 // ── Title detection ──────────────────────────────────────────────

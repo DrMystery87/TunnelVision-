@@ -8,7 +8,7 @@
  */
 
 import { getSettings } from '../tree-store.js';
-import { forgetEntry } from '../entry-manager.js';
+import { assertEntryUid, forgetEntry } from '../entry-manager.js';
 import { getWritableBooks, resolveTargetBook, getBookListWithDescriptions } from '../tool-registry.js';
 
 export const TOOL_NAME = 'TunnelVision_Forget';
@@ -63,7 +63,7 @@ ${bookDesc}`,
             try {
                 const result = await forgetEntry(
                     lorebook,
-                    Number(args.uid),
+                    assertEntryUid(args.uid),
                     args.permanent === true,
                 );
                 console.log(`[TunnelVision] Forget reason: ${args.reason}`);

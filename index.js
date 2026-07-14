@@ -25,7 +25,6 @@ import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { getSettings, isLorebookEnabled, setLorebookEnabled, isNativeInjectionBook } from './tree-store.js';
 import { preflightToolRuntimeState, registerTools } from './tool-registry.js';
 import { resetSearchLoopTracker, resetSelectiveRetrievalTracker } from './tools/search.js';
-import { buildNotebookPrompt, resetNotebookWriteGuard } from './tools/notebook.js';
 import { flushPendingSummaryHide } from './tools/summarize.js';
 import { bindUIEvents, refreshUI } from './ui-controller.js';
 import { initActivityFeed } from './activity-feed.js';
@@ -34,6 +33,7 @@ import { initAutoSummary } from './auto-summary.js';
 import { initPostTurnProcessor } from './post-turn-processor.js';
 import { runSidecarRetrieval } from './sidecar-retrieval.js';
 import { runSidecarWriter } from './sidecar-writer.js';
+import { applyPromptInjectionPlan, buildPromptInjectionPlan } from './prompt-injection-service.js';
 import { separateConditions, isEvaluableCondition, formatCondition, EVALUABLE_TYPES, CONDITION_LABELS, getKeywordProbability, setKeywordProbability } from './conditions.js';
 import { loadWorldInfo, saveWorldInfo, world_names } from '../../../world-info.js';
 
@@ -662,30 +662,6 @@ function onWorldInfoActivatedForTracking(entryList) {
 }
 
 const TV_PROMPT_KEY = 'tunnelvision_mandatory';
-const TV_NOTEBOOK_KEY = 'tunnelvision_notebook';
-
-/**
- * Map a position setting string to the ST extension_prompt_types enum.
- */
-function mapPositionSetting(val) {
-    switch (val) {
-        case 'in_prompt': return extension_prompt_types.IN_PROMPT;
-        case 'in_chat':
-        default: return extension_prompt_types.IN_CHAT;
-    }
-}
-
-/**
- * Map a role setting string to the ST extension_prompt_roles enum.
- */
-function mapRoleSetting(val) {
-    switch (val) {
-        case 'user': return extension_prompt_roles.USER;
-        case 'assistant': return extension_prompt_roles.ASSISTANT;
-        case 'system':
-        default: return extension_prompt_roles.SYSTEM;
-    }
-}
 
 /**
  * Strip TunnelVision tool results from older chat messages to save context tokens.
@@ -932,9 +908,6 @@ async function onGenerationStarted(type, opts, dryRun) {
         return;
     }
 
-    // Reset per-generation guards (only on first pass, not recursive)
-    resetNotebookWriteGuard();
-
     const settings = getSettings();
     let runtimeState = null;
 
@@ -962,27 +935,24 @@ async function onGenerationStarted(type, opts, dryRun) {
         }
     }
 
-    // Mandatory tool call instruction (only on first pass, not recursive)
-    const mandatoryPosition = mapPositionSetting(settings.mandatoryPromptPosition);
-    const mandatoryDepth = settings.mandatoryPromptDepth ?? 1;
-    // Guard: in_chat + user role can bisect tool_use/tool_result pairs on Claude,
-    // causing "unexpected tool_use_id" API errors. Force system role in that case.
-    const mandatoryRoleSetting = (settings.mandatoryPromptPosition === 'in_chat' && settings.mandatoryPromptRole === 'user')
-        ? 'system' : settings.mandatoryPromptRole;
-    const mandatoryRole = mapRoleSetting(mandatoryRoleSetting);
-
-    if (
+    // Centralize all injection slots in the service that also owns budget accounting.
+    // Keep the runtime eligibility gate here because only the live generation event
+    // knows whether ST can execute tools for this request type.
+    const promptPlan = await buildPromptInjectionPlan({
+        promptTypes: extension_prompt_types,
+        promptRoles: extension_prompt_roles,
+        isRecursiveToolPassImpl: () => false,
+    });
+    const mandatoryAvailable = (
         settings.globalEnabled !== false
         && settings.mandatoryTools
         && ToolManager.canPerformToolCalls(type)
         && runtimeState?.activeBooks?.length > 0
         && runtimeState.expectedToolNames.length > 0
         && runtimeState.eligibleToolNames.length > 0
-    ) {
-        const prompt = settings.mandatoryPromptText || '[IMPORTANT INSTRUCTION: You MUST use at least one TunnelVision tool call this turn.]';
-        setExtensionPrompt(TV_PROMPT_KEY, prompt, mandatoryPosition, mandatoryDepth, false, mandatoryRole);
-    } else {
-        setExtensionPrompt(TV_PROMPT_KEY, '', mandatoryPosition, mandatoryDepth, false, mandatoryRole);
+    );
+    if (!mandatoryAvailable) {
+        promptPlan.prompts.mandatory = '';
         if (
             settings.globalEnabled !== false
             && settings.mandatoryTools
@@ -1001,19 +971,14 @@ async function onGenerationStarted(type, opts, dryRun) {
         }
     }
 
-    // Inject notebook contents every turn (if enabled and notes exist)
-    const notebookPosition = mapPositionSetting(settings.notebookPromptPosition);
-    const notebookDepth = settings.notebookPromptDepth ?? 1;
-    const notebookRoleSetting = (settings.notebookPromptPosition === 'in_chat' && settings.notebookPromptRole === 'user')
-        ? 'system' : settings.notebookPromptRole;
-    const notebookRole = mapRoleSetting(notebookRoleSetting);
-
-    if (settings.globalEnabled !== false && settings.notebookEnabled !== false) {
-        const notebookPrompt = buildNotebookPrompt();
-        setExtensionPrompt(TV_NOTEBOOK_KEY, notebookPrompt, notebookPosition, notebookDepth, false, notebookRole);
-    } else {
-        setExtensionPrompt(TV_NOTEBOOK_KEY, '', notebookPosition, notebookDepth, false, notebookRole);
+    // A user-role prompt inserted into chat can bisect a tool_use/tool_result pair
+    // on Claude. Normalize every service-owned in-chat slot to system role.
+    for (const meta of Object.values(promptPlan.promptMeta)) {
+        if (meta.position === extension_prompt_types.IN_CHAT && meta.role === extension_prompt_roles.USER) {
+            meta.role = extension_prompt_roles.SYSTEM;
+        }
     }
+    applyPromptInjectionPlan(promptPlan);
 }
 
 /**

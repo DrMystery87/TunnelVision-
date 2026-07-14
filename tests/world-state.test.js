@@ -64,6 +64,7 @@ describe('getWorldStateTemporalSnapshot', () => {
             chat: [],
             saveMetadataDebounced: vi.fn(),
         };
+        globalThis.__tunnelvisionVitestContext = mockState.context;
     });
 
     it('extracts normalized day/date/time/location from Current Scene sections', () => {

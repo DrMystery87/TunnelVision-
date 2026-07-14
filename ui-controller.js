@@ -44,6 +44,9 @@ import { applyRecurseLimit } from './index.js';
 import { refreshHiddenToolCallMessages } from './activity-feed.js';
 import { separateConditions, isEvaluableCondition, formatCondition, EVALUABLE_TYPES, CONDITION_LABELS, getKeywordProbability, setKeywordProbability } from './conditions.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
+import { resolveTaskSampler } from './sidecar-safety.js';
+import { getSidecarWriteDrafts } from './sidecar-drafts.js';
+import { approveSidecarWriteDraft, rejectSidecarWriteDraft } from './sidecar-writer.js';
 
 
 let currentLorebook = null;
@@ -199,6 +202,7 @@ export function bindUIEvents() {
     $('#tv_sidecar_auto_retrieval').on('change', onSidecarAutoRetrievalToggle);
     $('#tv_sidecar_context_messages').on('input', onSidecarContextMessagesChange);
     $('#tv_sidecar_max_injection').on('input', onSidecarMaxInjectionChange);
+    $('#tv_sidecar_retrieval_temperature, #tv_sidecar_retrieval_max_tokens').on('input', onSidecarRetrievalSamplerChange);
     $('#tv_conditional_triggers').on('change', function () {
         const settings = getSettings();
         settings.conditionalTriggersEnabled = $(this).prop('checked');
@@ -210,6 +214,10 @@ export function bindUIEvents() {
     $('#tv_sidecar_post_gen_writer').on('change', onSidecarPostGenWriterToggle);
     $('#tv_sidecar_writer_context').on('input', onSidecarWriterContextChange);
     $('#tv_sidecar_writer_max_ops').on('input', onSidecarWriterMaxOpsChange);
+    $('#tv_sidecar_writer_mode').on('change', onSidecarWriterModeChange);
+    $('#tv_sidecar_writer_temperature, #tv_sidecar_writer_max_tokens').on('input', onSidecarWriterSamplerChange);
+    $('#tv_sidecar_writer_drafts').on('click', '.tv-sidecar-draft-approve', onApproveSidecarWriteDraft);
+    $('#tv_sidecar_writer_drafts').on('click', '.tv-sidecar-draft-reject', onRejectSidecarWriteDraft);
 
     // Compact tool prompts
     $('#tv_compact_tool_prompts').on('change', onCompactToolPromptsToggle);
@@ -982,6 +990,17 @@ function onSidecarMaxInjectionChange() {
     saveSettingsDebounced();
 }
 
+function onSidecarRetrievalSamplerChange() {
+    const settings = getSettings();
+    settings.sidecarTaskSamplers ??= {};
+    settings.sidecarTaskSamplers.retrieval = {
+        temperature: Number($('#tv_sidecar_retrieval_temperature').val()),
+        maxTokens: Number($('#tv_sidecar_retrieval_max_tokens').val()),
+    };
+    $('#tv_sidecar_retrieval_temp_val').text(settings.sidecarTaskSamplers.retrieval.temperature.toFixed(2));
+    saveSettingsDebounced();
+}
+
 function onSidecarPostGenWriterToggle() {
     const settings = getSettings();
     settings.sidecarPostGenWriter = $(this).prop('checked');
@@ -1006,6 +1025,76 @@ function onSidecarWriterMaxOpsChange() {
     const settings = getSettings();
     settings.sidecarWriterMaxOps = Number($(this).val()) || 5;
     saveSettingsDebounced();
+}
+
+function onSidecarWriterModeChange() {
+    const settings = getSettings();
+    settings.sidecarWriterMode = $(this).val() === 'auto' ? 'auto' : 'review';
+    saveSettingsDebounced();
+}
+
+function onSidecarWriterSamplerChange() {
+    const settings = getSettings();
+    settings.sidecarTaskSamplers ??= {};
+    settings.sidecarTaskSamplers.writer = {
+        temperature: Number($('#tv_sidecar_writer_temperature').val()),
+        maxTokens: Number($('#tv_sidecar_writer_max_tokens').val()),
+    };
+    $('#tv_sidecar_writer_temp_val').text(settings.sidecarTaskSamplers.writer.temperature.toFixed(2));
+    saveSettingsDebounced();
+}
+
+function renderSidecarWriteDrafts() {
+    const $container = $('#tv_sidecar_writer_drafts');
+    if ($container.length === 0) return;
+    $container.empty();
+
+    const drafts = getSidecarWriteDrafts();
+    if (drafts.length === 0) {
+        $container.append($('<div class="tv-help-text"></div>').text('No pending sidecar drafts.'));
+        return;
+    }
+
+    $container.append($('<div class="tv-help-text"></div>').text(`${drafts.length} pending sidecar draft${drafts.length === 1 ? '' : 's'}. Review each operation before it mutates a lorebook.`));
+    for (const draft of drafts) {
+        const op = draft.op || {};
+        const title = `${String(op.type || 'unknown').toUpperCase()}${op.lorebook ? ` · ${op.lorebook}` : ''}`;
+        const detail = op.title || op.new_title || op.summary || op.reason || op.content || (op.uid !== undefined ? `UID ${op.uid}` : 'No operation details');
+        const $card = $('<div class="tv-lorebook-card"></div>');
+        const $info = $('<div class="tv-lorebook-card-info"></div>');
+        $info.append($('<span class="tv-lorebook-card-name"></span>').text(title));
+        $info.append($('<div class="tv-help-text"></div>').text(String(detail).slice(0, 320)));
+        if (draft.reasoning) {
+            $info.append($('<div class="tv-help-text"></div>').text(`Reasoning: ${draft.reasoning.slice(0, 240)}`));
+        }
+        const $actions = $('<div class="tv-button-row"></div>');
+        $actions.append($('<button type="button" class="tv-btn tv-btn-primary tv-sidecar-draft-approve">Approve</button>').attr('data-draft-id', draft.id));
+        $actions.append($('<button type="button" class="tv-btn tv-btn-secondary tv-sidecar-draft-reject">Reject</button>').attr('data-draft-id', draft.id));
+        $card.append($info, $actions);
+        $container.append($card);
+    }
+}
+
+async function onApproveSidecarWriteDraft() {
+    const draftId = $(this).attr('data-draft-id');
+    if (!draftId) return;
+    const $button = $(this).prop('disabled', true);
+    try {
+        await approveSidecarWriteDraft(draftId);
+        toastr.success('Applied sidecar draft.', 'TunnelVision');
+    } catch (error) {
+        toastr.error(`Draft was not applied: ${error.message}`, 'TunnelVision');
+        $button.prop('disabled', false);
+    }
+    renderSidecarWriteDrafts();
+}
+
+function onRejectSidecarWriteDraft() {
+    const draftId = $(this).attr('data-draft-id');
+    if (!draftId) return;
+    rejectSidecarWriteDraft(draftId);
+    toastr.info('Discarded sidecar draft.', 'TunnelVision');
+    renderSidecarWriteDrafts();
 }
 
 // ─── Per-Lorebook Permissions ────────────────────────────────────
@@ -1049,6 +1138,10 @@ function populateConnectionProfiles() {
     $('#tv_sidecar_retrieval_fields').toggle(autoRetrieval);
     $('#tv_sidecar_context_messages').val(settings.sidecarContextMessages ?? 10);
     $('#tv_sidecar_max_injection').val(settings.sidecarMaxInjectionTokens ?? 4000);
+    const retrievalSampler = resolveTaskSampler(settings, 'retrieval');
+    $('#tv_sidecar_retrieval_temperature').val(retrievalSampler.temperature);
+    $('#tv_sidecar_retrieval_temp_val').text(retrievalSampler.temperature.toFixed(2));
+    $('#tv_sidecar_retrieval_max_tokens').val(retrievalSampler.maxTokens);
 
     // Sync conditional triggers toggle
     $('#tv_conditional_triggers').prop('checked', settings.conditionalTriggersEnabled !== false);
@@ -1062,6 +1155,12 @@ function populateConnectionProfiles() {
     $('#tv_sidecar_writer_fields').toggle(postGenWriter);
     $('#tv_sidecar_writer_context').val(settings.sidecarWriterContextMessages ?? 15);
     $('#tv_sidecar_writer_max_ops').val(settings.sidecarWriterMaxOps ?? 5);
+    $('#tv_sidecar_writer_mode').val(settings.sidecarWriterMode === 'auto' ? 'auto' : 'review');
+    const writerSampler = resolveTaskSampler(settings, 'writer');
+    $('#tv_sidecar_writer_temperature').val(writerSampler.temperature);
+    $('#tv_sidecar_writer_temp_val').text(writerSampler.temperature.toFixed(2));
+    $('#tv_sidecar_writer_max_tokens').val(writerSampler.maxTokens);
+    renderSidecarWriteDrafts();
 }
 
 // ─── Tree Management ─────────────────────────────────────────────

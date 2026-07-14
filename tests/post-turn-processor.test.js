@@ -68,7 +68,7 @@ vi.mock('../smart-context.js', () => ({
     invalidatePreWarmCache: vi.fn(),
 }));
 
-import { getContext } from '../../../st-context.js';
+import { setTestContext } from './stubs/st-context-host.js';
 import { updateEntry, parseJsonFromLLM } from '../entry-manager.js';
 import { callWithRetry, generateAnalytical } from '../agent-utils.js';
 import {
@@ -88,7 +88,7 @@ import { getWorldStateTemporalSnapshot } from '../world-state.js';
 
 beforeEach(() => {
     vi.clearAllMocks();
-    getContext.mockReturnValue({
+    setTestContext({
         chatMetadata: {},
         saveMetadataDebounced: vi.fn(),
     });
@@ -223,7 +223,7 @@ describe('computeChangeFraction', () => {
 describe('updateTrackers', () => {
     it('rebases externally modified tracker content and still applies the update', async () => {
         const saveMetadataDebounced = vi.fn();
-        getContext.mockReturnValue({
+        setTestContext({
             chatMetadata: {
                 tunnelvision_tracker_hashes: {
                     'test-book:7': {
@@ -261,13 +261,13 @@ describe('updateTrackers', () => {
             content: '## Current Status\nMood: alert',
             _source: 'post-turn',
         });
-        expect(getContext().chatMetadata.tunnelvision_tracker_hashes['test-book:7'].hash)
+        expect(globalThis.__tunnelvisionVitestContext.chatMetadata.tunnelvision_tracker_hashes['test-book:7'].hash)
             .toBe(contentHash('## Current Status\nMood: alert'));
         expect(saveMetadataDebounced).toHaveBeenCalled();
     });
 
     it('updates trackers normally when no prior hash exists', async () => {
-        getContext.mockReturnValue({
+        setTestContext({
             chatMetadata: {},
             saveMetadataDebounced: vi.fn(),
         });
@@ -302,7 +302,7 @@ describe('updateTrackers', () => {
 
 describe('runPostTurnProcessor smart-context refresh', () => {
     it('rewarms smart-context without invalidation when post-turn makes no memory changes', async () => {
-        getContext.mockReturnValue({
+        setTestContext({
             chat: [
                 { is_user: true, mes: 'Hello' },
                 { is_user: false, mes: 'Hi there' },
@@ -338,7 +338,7 @@ describe('runPostTurnProcessor smart-context refresh', () => {
             postTurnSceneArchive: false,
         });
 
-        getContext.mockReturnValue({
+        setTestContext({
             chat: [
                 { is_user: true, mes: 'Hello' },
                 { is_user: false, mes: 'Hi there' },
@@ -384,7 +384,7 @@ describe('runPostTurnProcessor smart-context refresh', () => {
             postTurnSceneArchive: false,
         });
 
-        getContext.mockReturnValue({
+        setTestContext({
             chat: [
                 { is_user: true, mes: 'Hello' },
                 { is_user: false, mes: 'Hi there' },

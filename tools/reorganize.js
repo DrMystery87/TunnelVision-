@@ -6,7 +6,7 @@
  */
 
 import { getTree, findNodeById, getSettings, getAllEntryUids } from '../tree-store.js';
-import { moveEntry, createCategory, listNodeEntries } from '../entry-manager.js';
+import { assertEntryUid, moveEntry, createCategory, listNodeEntries } from '../entry-manager.js';
 import { getWritableBooks, resolveTargetBook, getBookListWithDescriptions } from '../tool-registry.js';
 
 export const TOOL_NAME = 'TunnelVision_Reorganize';
@@ -76,7 +76,7 @@ ${bookDesc}`,
                         return 'Move requires both "uid" and "target_node_id".';
                     }
                     try {
-                        const result = await moveEntry(lorebook, Number(args.uid), args.target_node_id);
+                        const result = await moveEntry(lorebook, assertEntryUid(args.uid), args.target_node_id);
                         return `Moved entry UID ${result.uid}: "${result.fromLabel}" → "${result.toLabel}".`;
                     } catch (e) {
                         console.error('[TunnelVision] Move failed:', e);

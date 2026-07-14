@@ -16,6 +16,11 @@ import { processArcUpdates, getActiveArcs, getAllArcs, buildArcsSummary, buildAr
 beforeEach(() => {
     delete mockMetadata.tunnelvision_arcs;
     mockChat.length = 0;
+    globalThis.__tunnelvisionVitestContext = {
+        chatMetadata: mockMetadata,
+        chat: mockChat,
+        saveMetadataDebounced: vi.fn(),
+    };
 });
 
 // ── processArcUpdates ────────────────────────────────────────────

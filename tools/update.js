@@ -6,7 +6,7 @@
  */
 
 import { getSettings } from '../tree-store.js';
-import { updateEntry } from '../entry-manager.js';
+import { assertEntryUid, updateEntry } from '../entry-manager.js';
 import { getWritableBooks, resolveTargetBook, getBookListWithDescriptions } from '../tool-registry.js';
 import { getLanguageInstruction } from '../agent-utils.js';
 
@@ -66,7 +66,7 @@ ${bookDesc}`,
             const { book: lorebook, error } = resolveTargetBook(args.lorebook, { checkWrite: true });
             if (error) return error;
 
-            // Must provide at least one thing to update
+            // Must provide at least one thing to update.
             if (!args.content && !args.title && !args.keys) {
                 return 'Nothing to update. Provide at least one of: content, title, or keys.';
             }
@@ -77,7 +77,7 @@ ${bookDesc}`,
                 if (args.title) updates.comment = args.title;
                 if (args.keys) updates.keys = args.keys;
 
-                const result = await updateEntry(lorebook, Number(args.uid), updates);
+                const result = await updateEntry(lorebook, assertEntryUid(args.uid), updates);
                 return `Updated entry "${result.comment}" (UID ${result.uid}): changed ${result.updated.join(', ')}.`;
             } catch (e) {
                 console.error('[TunnelVision] Update failed:', e);

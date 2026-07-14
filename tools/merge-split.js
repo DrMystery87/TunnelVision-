@@ -9,7 +9,7 @@
  */
 
 import { getSettings } from '../tree-store.js';
-import { mergeEntries, splitEntry, findEntry } from '../entry-manager.js';
+import { assertEntryUid, mergeEntries, splitEntry, findEntry } from '../entry-manager.js';
 import { getWritableBooks, resolveTargetBook, getBookListWithDescriptions } from '../tool-registry.js';
 
 export const TOOL_NAME = 'TunnelVision_MergeSplit';
@@ -110,8 +110,8 @@ ${bookDesc}`,
                     try {
                         const result = await mergeEntries(
                             lorebook,
-                            Number(args.keep_uid),
-                            Number(args.remove_uid),
+                            assertEntryUid(args.keep_uid),
+                            assertEntryUid(args.remove_uid),
                             {
                                 mergedContent: args.merged_content || null,
                                 mergedTitle: args.merged_title || null,
@@ -141,7 +141,7 @@ ${bookDesc}`,
                     try {
                         const result = await splitEntry(
                             lorebook,
-                            Number(args.uid),
+                            assertEntryUid(args.uid),
                             {
                                 keepContent: args.keep_content,
                                 keepTitle: args.keep_title || null,

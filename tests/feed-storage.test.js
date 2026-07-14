@@ -5,7 +5,7 @@ vi.mock('../../../st-context.js', () => ({
     getContext: vi.fn(),
 }));
 
-import { getContext } from '../../../st-context.js';
+import { setTestContext } from './stubs/st-context-host.js';
 import { saveFeed, loadFeed, migrateFeedItems, METADATA_KEY } from '../feed-ui/feed-storage.js';
 import {
     getActiveChatId,
@@ -32,7 +32,7 @@ describe('feed-storage', () => {
                 chatMetadata: {},
                 saveMetadataDebounced,
             };
-            getContext.mockReturnValue(context);
+            setTestContext(context);
 
             setActiveChatId('chat-1');
             setFeedItems([{ id: 1, type: 'entry', title: 'A' }]);
@@ -53,7 +53,7 @@ describe('feed-storage', () => {
                 chatMetadata: null,
                 saveMetadataDebounced: vi.fn(),
             };
-            getContext.mockReturnValue(context);
+            setTestContext(context);
 
             setActiveChatId('chat-1');
             setFeedItems([{ id: 1 }]);
@@ -70,7 +70,7 @@ describe('feed-storage', () => {
                 chatMetadata: {},
                 saveMetadataDebounced,
             };
-            getContext.mockReturnValue(context);
+            setTestContext(context);
 
             setActiveChatId('chat-1');
             setFeedItems([{ id: 1, type: 'entry' }]);
@@ -89,7 +89,7 @@ describe('feed-storage', () => {
                 chatMetadata: {},
                 saveMetadataDebounced,
             };
-            getContext.mockReturnValue(context);
+            setTestContext(context);
 
             setActiveChatId('chat-1');
             setFeedItems([{ id: 7 }]);
@@ -107,7 +107,7 @@ describe('feed-storage', () => {
 
     describe('loadFeed', () => {
         it('resets state when there is no chat id', () => {
-            getContext.mockReturnValue({
+            setTestContext({
                 chatId: null,
                 chatMetadata: {},
             });
@@ -125,7 +125,7 @@ describe('feed-storage', () => {
 
         it('loads items and nextId from metadata', () => {
             const items = [{ id: 1, type: 'entry', title: 'Loaded' }];
-            getContext.mockReturnValue({
+            setTestContext({
                 chatId: 'chat-1',
                 chatMetadata: {
                     [METADATA_KEY]: {
@@ -149,7 +149,7 @@ describe('feed-storage', () => {
                 { id: 3, type: 'background' },
             ];
 
-            getContext.mockReturnValue({
+            setTestContext({
                 chatId: 'chat-1',
                 chatMetadata: {
                     [METADATA_KEY]: {
@@ -166,7 +166,7 @@ describe('feed-storage', () => {
         });
 
         it('leaves empty state when metadata key is absent', () => {
-            getContext.mockReturnValue({
+            setTestContext({
                 chatId: 'chat-1',
                 chatMetadata: {},
             });
@@ -197,7 +197,7 @@ describe('feed-storage', () => {
                 },
                 saveMetadataDebounced,
             };
-            getContext.mockReturnValue(context);
+            setTestContext(context);
 
             loadFeed({
                 trackerSuggestionNameRe: /^"([^"]+)"/,
@@ -224,7 +224,7 @@ describe('feed-storage', () => {
             const items = [{ id: 1, type: 'entry' }];
             const onAfterLoad = vi.fn();
 
-            getContext.mockReturnValue({
+            setTestContext({
                 chatId: 'chat-1',
                 chatMetadata: {
                     [METADATA_KEY]: {
@@ -242,7 +242,7 @@ describe('feed-storage', () => {
 
         it('supports metadata key override', () => {
             const items = [{ id: 5, type: 'entry', title: 'Custom' }];
-            getContext.mockReturnValue({
+            setTestContext({
                 chatId: 'chat-1',
                 chatMetadata: {
                     custom_feed_key: {

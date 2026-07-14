@@ -53,7 +53,7 @@ export function stripDynamicContent(text) {
 }
 
 /** Tools that can be gated with per-tool confirmation. Only destructive/mutating tools. */
-const CONFIRMABLE_TOOLS = new Set([REMEMBER_NAME, UPDATE_NAME, FORGET_NAME, SUMMARIZE_NAME, REORGANIZE_NAME, MERGESPLIT_NAME]);
+const CONFIRMABLE_TOOLS = new Set([REMEMBER_NAME, UPDATE_NAME, FORGET_NAME, SUMMARIZE_NAME, REORGANIZE_NAME, MERGESPLIT_NAME, NOTEBOOK_NAME]);
 
 /** Map from tool name to compact one-liner description. */
 const COMPACT_DESCRIPTIONS = {
@@ -538,7 +538,7 @@ async function showToolConfirmation(displayName, args, toolName) {
         try {
             const { book } = resolveTargetBook(args.lorebook);
             if (book) {
-                const found = await findEntry(book, Number(args.uid));
+                const found = await findEntry(book, args.uid);
                 if (found?.entry) {
                     const originalContent = found.entry.content || '';
                     const newContent = args.content;

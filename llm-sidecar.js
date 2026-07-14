@@ -18,6 +18,7 @@
 
 import { getContext } from '../../../st-context.js';
 import { getSettings, findConnectionProfile } from './tree-store.js';
+import { resolveTaskSampler } from './sidecar-safety.js';
 
 const MODULE_NAME = 'TunnelVision';
 
@@ -123,6 +124,19 @@ export function isSidecarKeyAvailable() {
     return !_secretKeyFailed;
 }
 
+/**
+ * Embedding profiles are not part of the current Connection Manager sidecar
+ * contract. Keep this explicit compatibility seam so callers can safely
+ * disable vector ranking instead of attempting an unsupported direct call.
+ */
+export function isEmbeddingSupported() {
+    return false;
+}
+
+export async function computeEmbeddings() {
+    throw new Error('Embeddings are not configured for the TunnelVision sidecar.');
+}
+
 // ─── Think Block Stripping ──────────────────────────────────────────
 
 const THINK_BLOCK_RE = /<think[\s\S]*?<\/think>/gi;
@@ -225,10 +239,11 @@ function resolveProfileConfig() {
  * @param {Object} opts
  * @param {string} opts.prompt - The user/main prompt text
  * @param {string} [opts.systemPrompt] - Optional system prompt
+ * @param {'general'|'retrieval'|'writer'} [opts.task='general'] - Sampler profile to apply
  * @returns {Promise<string>} The generated text (think blocks stripped)
  * @throws {Error} On missing config, missing API key, or API errors
  */
-export async function sidecarGenerate({ prompt, systemPrompt }) {
+export async function sidecarGenerate({ prompt, systemPrompt, task = 'general' }) {
     console.debug(`[${MODULE_NAME}] sidecarGenerate called (prompt length: ${prompt?.length || 0})`);
 
     const config = resolveProfileConfig();
@@ -237,8 +252,7 @@ export async function sidecarGenerate({ prompt, systemPrompt }) {
     }
 
     const settings = getSettings();
-    const temperature = settings.sidecarTemperature ?? 0.2;
-    const maxTokens = settings.sidecarMaxTokens || 2048;
+    const { temperature, maxTokens } = resolveTaskSampler(settings, task);
 
     const { provider, format, model, endpoint, secretKey, secretId } = config;
 
@@ -254,7 +268,7 @@ export async function sidecarGenerate({ prompt, systemPrompt }) {
         );
     }
 
-    console.debug(`[${MODULE_NAME}] Sidecar calling ${format} API: ${provider}/${model} → ${endpoint} (temp=${temperature}, maxTokens=${maxTokens})`);
+    console.debug(`[${MODULE_NAME}] Sidecar calling ${format} API: ${provider}/${model} → ${endpoint} (task=${task}, temp=${temperature}, maxTokens=${maxTokens})`);
 
     let result;
 

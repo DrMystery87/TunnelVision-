@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 
 const getMockState = () => globalThis.__tvDiagnosticsMockState;
 
@@ -20,7 +20,26 @@ vi.mock('../tree-store.js', () => ({
         return result;
     }),
     findNodeById: vi.fn(() => null),
-    getSettings: vi.fn(() => getMockState().settings),
+    getSettings: vi.fn(() => ({
+        trees: {},
+        enabledLorebooks: {},
+        trackerUids: {},
+        disabledTools: {},
+        confirmTools: {},
+        toolPromptOverrides: {},
+        searchMode: 'traversal',
+        selectiveRetrieval: true,
+        recurseLimit: 5,
+        llmBuildDetail: 'lite',
+        llmChunkTokens: 30000,
+        multiBookMode: 'unified',
+        compactToolPrompts: true,
+        ephemeralResults: true,
+        ephemeralToolFilter: [],
+        autoHideSummarized: true,
+        passthroughConstant: true,
+        ...getMockState().settings,
+    })),
     saveTree: vi.fn((bookName, tree) => {
         getMockState().savedTrees.push({ bookName, tree });
     }),
@@ -59,7 +78,7 @@ vi.mock('../entry-manager.js', () => ({
         }
         return map;
     }),
-    getCachedWorldInfo: vi.fn(async bookName => getMockState().lorebooks.get(bookName) || null),
+    getCachedWorldInfoSync: vi.fn(bookName => getMockState().lorebooks.get(bookName) || null),
 }));
 
 vi.mock('../../../st-context.js', () => ({
@@ -70,22 +89,38 @@ vi.mock('../../../st-context.js', () => ({
     })),
 }));
 
-vi.mock('../../../world-info.js', async () => {
-    const actual = await vi.importActual('../../../world-info.js');
-    return {
-        ...actual,
-        get world_names() {
-            return getMockState().worldNames;
-        },
-    };
-});
+vi.mock('../../../world-info.js', () => ({
+    selected_world_info: null,
+    world_names: ['Book A', 'Book B'],
+    loadWorldInfo: vi.fn(bookName => getMockState().lorebooks.get(bookName) || null),
+    createWorldInfoEntry: vi.fn(),
+    saveWorldInfo: vi.fn(),
+}));
 
 import { runDiagnostics } from '../diagnostics.js';
 
 function resetMockState() {
     globalThis.__tvDiagnosticsMockState = {
         activeBooks: [],
-        settings: { trackerUids: {} },
+        settings: {
+            trees: {},
+            enabledLorebooks: {},
+            trackerUids: {},
+            disabledTools: {},
+            confirmTools: {},
+            toolPromptOverrides: {},
+            searchMode: 'traversal',
+            selectiveRetrieval: true,
+            recurseLimit: 5,
+            llmBuildDetail: 'lite',
+            llmChunkTokens: 30000,
+            multiBookMode: 'unified',
+            compactToolPrompts: true,
+            ephemeralResults: true,
+            ephemeralToolFilter: [],
+            autoHideSummarized: true,
+            passthroughConstant: true,
+        },
         worldNames: [],
         lorebooks: new Map(),
         savedTrees: [],
@@ -107,6 +142,14 @@ describe('runDiagnostics tracker UID normalization', () => {
     beforeEach(() => {
         resetMockState();
         vi.clearAllMocks();
+        vi.stubGlobal('document', { querySelector: vi.fn(() => null) });
+        globalThis.__tunnelvisionVitestWorldInfo = {
+            loadWorldInfo: bookName => getMockState().lorebooks.get(bookName) || null,
+        };
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
     });
 
     it('removes stale and disabled tracker UIDs while adding title-based trackers', async () => {

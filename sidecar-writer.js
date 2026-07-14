@@ -33,6 +33,12 @@ import { getDefinition as getReorganizeDef } from './tools/reorganize.js';
 import { getDefinition as getMergeSplitDef } from './tools/merge-split.js';
 import { logSidecarWrite } from './activity-feed.js';
 import { applyBackgroundPromptAddendum, buildLanguageDirective } from './agent-utils.js';
+import { parseSafeUid } from './sidecar-safety.js';
+import {
+    enqueueSidecarWriteDraft,
+    getSidecarWriteDraft,
+    removeSidecarWriteDraft,
+} from './sidecar-drafts.js';
 
 // ─── Tree Overview (shared format with sidecar-retrieval.js) ─────
 
@@ -328,10 +334,12 @@ function parseWriteOps(response) {
             for (const u of parsed.update.slice(0, 5)) {
                 if (u.uid === undefined || u.uid === null) continue;
                 if (!u.content && !u.title) continue;
+                const uid = parseSafeUid(u.uid);
+                if (uid === null) continue;
                 ops.push({
                     type: 'update',
                     lorebook: u.lorebook || '',
-                    uid: Number(u.uid),
+                    uid,
                     content: u.content ? String(u.content).substring(0, 2000) : undefined,
                     title: u.title ? String(u.title).substring(0, 200) : undefined,
                 });
@@ -342,11 +350,14 @@ function parseWriteOps(response) {
             for (const m of parsed.merge.slice(0, 3)) {
                 if (m.keep_uid === undefined || m.keep_uid === null) continue;
                 if (m.remove_uid === undefined || m.remove_uid === null) continue;
+                const keepUid = parseSafeUid(m.keep_uid);
+                const removeUid = parseSafeUid(m.remove_uid);
+                if (keepUid === null || removeUid === null || keepUid === removeUid) continue;
                 ops.push({
                     type: 'merge',
                     lorebook: m.lorebook || '',
-                    keep_uid: Number(m.keep_uid),
-                    remove_uid: Number(m.remove_uid),
+                    keep_uid: keepUid,
+                    remove_uid: removeUid,
                     content: m.merged_content ? String(m.merged_content).substring(0, 2000) : undefined,
                     title: m.merged_title ? String(m.merged_title).substring(0, 200) : undefined,
                 });
@@ -371,10 +382,12 @@ function parseWriteOps(response) {
             for (const f of parsed.forget.slice(0, 3)) {
                 if (f.uid === undefined || f.uid === null) continue;
                 if (!f.reason) continue;
+                const uid = parseSafeUid(f.uid);
+                if (uid === null) continue;
                 ops.push({
                     type: 'forget',
                     lorebook: f.lorebook || '',
-                    uid: Number(f.uid),
+                    uid,
                     reason: String(f.reason).substring(0, 500),
                 });
             }
@@ -383,11 +396,13 @@ function parseWriteOps(response) {
         if (Array.isArray(parsed.reorganize)) {
             for (const r of parsed.reorganize.slice(0, 3)) {
                 if (!r.action) continue;
+                const uid = r.uid !== undefined ? parseSafeUid(r.uid) : undefined;
+                if (r.action === 'move' && uid === null) continue;
                 ops.push({
                     type: 'reorganize',
                     lorebook: r.lorebook || '',
                     action: String(r.action),
-                    uid: r.uid !== undefined ? Number(r.uid) : undefined,
+                    uid: uid ?? undefined,
                     target_node_id: r.target_node_id ? String(r.target_node_id) : undefined,
                     title: r.label ? String(r.label).substring(0, 200) : undefined,
                 });
@@ -398,10 +413,12 @@ function parseWriteOps(response) {
             for (const sp of parsed.split.slice(0, 2)) {
                 if (sp.uid === undefined || sp.uid === null) continue;
                 if (!sp.keep_content || !sp.new_content || !sp.new_title) continue;
+                const uid = parseSafeUid(sp.uid);
+                if (uid === null) continue;
                 ops.push({
                     type: 'split',
                     lorebook: sp.lorebook || '',
-                    uid: Number(sp.uid),
+                    uid,
                     keep_content: String(sp.keep_content).substring(0, 2000),
                     keep_title: sp.keep_title ? String(sp.keep_title).substring(0, 200) : undefined,
                     new_content: String(sp.new_content).substring(0, 2000),
@@ -425,7 +442,7 @@ function parseWriteOps(response) {
  * @param {string} [reasoning]
  * @returns {Promise<{succeeded: number, failed: number, results: string[]}>}
  */
-async function executeWriteOps(ops, reasoning = '') {
+export async function executeWriteOps(ops, reasoning = '') {
     const results = [];
     let succeeded = 0;
     let failed = 0;
@@ -453,14 +470,17 @@ async function executeWriteOps(ops, reasoning = '') {
         try {
             // Check confirmation if the user has it enabled for this tool type
             const toolName = OP_TO_TOOL[op.type];
-            if (toolName) {
-                const approved = await checkToolConfirmation(toolName, op);
-                if (!approved) {
-                    console.log(`[TunnelVision] Sidecar write denied by user: ${op.type} "${op.title || op.uid || ''}"`)
-                    results.push({ op, success: false, result: 'Denied by user' });
-                    failed++;
-                    continue;
-                }
+            if (!toolName) {
+                failed++;
+                results.push(`FAIL [${op.type || 'unknown'}]: Unsupported sidecar operation`);
+                continue;
+            }
+            const approved = await checkToolConfirmation(toolName, op);
+            if (!approved) {
+                console.log(`[TunnelVision] Sidecar write denied by user: ${op.type} "${op.title || op.uid || ''}"`);
+                results.push(`DENIED [${op.type}]: User denied the operation`);
+                failed++;
+                continue;
             }
 
             let result;
@@ -567,6 +587,33 @@ async function executeWriteOps(ops, reasoning = '') {
     return { succeeded, failed, results };
 }
 
+/**
+ * Execute one user-reviewed sidecar proposal. Failed proposals remain queued
+ * so the user can inspect or retry them instead of silently losing evidence.
+ * @param {string} draftId
+ * @returns {Promise<{succeeded: number, failed: number, results: string[]}>}
+ */
+export async function approveSidecarWriteDraft(draftId) {
+    const draft = getSidecarWriteDraft(draftId);
+    if (!draft) throw new Error('Sidecar write draft not found.');
+
+    const result = await executeWriteOps([draft.op], draft.reasoning);
+    if (result.failed > 0 || result.succeeded !== 1) {
+        throw new Error(result.results[0] || 'Sidecar write draft could not be applied.');
+    }
+
+    removeSidecarWriteDraft(draftId);
+    return result;
+}
+
+/**
+ * @param {string} draftId
+ * @returns {boolean}
+ */
+export function rejectSidecarWriteDraft(draftId) {
+    return removeSidecarWriteDraft(draftId);
+}
+
 // ─── Main Entry Point ────────────────────────────────────────────
 
 /**
@@ -614,6 +661,7 @@ export async function runSidecarWriter() {
         const response = await sidecarGenerate({
             prompt,
             systemPrompt: applyBackgroundPromptAddendum(WRITER_SYSTEM_PROMPT) + langDirective,
+            task: 'writer',
         });
 
         const _rawModel = getSidecarModelLabel() || 'unknown';
@@ -630,6 +678,14 @@ export async function runSidecarWriter() {
         // Cap total operations
         const maxOps = settings.sidecarWriterMaxOps ?? 5;
         const capped = ops.slice(0, maxOps);
+
+        if (settings.sidecarWriterMode !== 'auto') {
+            for (const op of capped) {
+                enqueueSidecarWriteDraft(op, reasoning);
+            }
+            console.log(`[TunnelVision] Sidecar post-gen writer queued ${capped.length} draft operation(s) for review.`);
+            return;
+        }
 
         // Execute writes
         const { succeeded, failed, results } = await executeWriteOps(capped, reasoning);

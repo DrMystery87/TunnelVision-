@@ -28,6 +28,7 @@ function makeEntry(overrides = {}) {
 // Mock internal dependencies with complex transitive imports
 vi.mock('../tool-registry.js', () => ({
     getActiveTunnelVisionBooks: vi.fn(() => mockState.activeBooks),
+    getInjectionManagedBooks: vi.fn(() => mockState.activeBooks),
 }));
 vi.mock('../entry-manager.js', () => ({
     getCachedWorldInfoSync: vi.fn((book) => mockState.cachedWorldInfoSyncByBook.get(book) || null),
@@ -35,6 +36,11 @@ vi.mock('../entry-manager.js', () => ({
         mockState.cachedWorldInfoCalls.push(book);
         return mockState.cachedWorldInfoSyncByBook.get(book) || null;
     }),
+    getEntryTurnIndex: vi.fn(() => -1),
+}));
+vi.mock('../agent-utils.js', () => ({
+    getEntryTitle: entry => entry?.comment || entry?.key?.[0] || '',
+    getMaxContextTokens: () => mockState.maxContextTokens,
 }));
 vi.mock('../world-state.js', () => ({
     getWorldStateSections: vi.fn(() => ({})),
@@ -78,6 +84,12 @@ beforeEach(() => {
         smartContextEnabled: true,
         globalEnabled: true,
         smartContextLookback: 6,
+    };
+    globalThis.__tunnelvisionVitestContext = {
+        chatId: 'test-chat',
+        chat: mockChat,
+        chatMetadata: mockMetadata,
+        saveMetadataDebounced: vi.fn(),
     };
     vi.mocked(addBackgroundEvent).mockClear();
     vi.mocked(addEntryActivationEvents).mockClear();

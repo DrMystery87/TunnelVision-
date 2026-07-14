@@ -34,6 +34,19 @@ import {
 const _wiCache = new Map();
 
 /**
+ * Reject malformed identifiers before they can target or create a lorebook
+ * mutation. UIDs are serialized numeric identifiers, never coercible input.
+ * @param {unknown} uid
+ * @returns {number}
+ */
+export function assertEntryUid(uid) {
+    if (typeof uid !== 'number' || !Number.isSafeInteger(uid) || uid < 0) {
+        throw new Error('UID must be a non-negative safe integer.');
+    }
+    return uid;
+}
+
+/**
  * Load and cache lorebook data. Use this to pre-warm the cache.
  * @param {string} bookName
  * @returns {Promise<Object|null>}
@@ -142,6 +155,7 @@ export async function createEntry(bookName, { content, comment, keys, nodeId }) 
  * @returns {Promise<{uid: number, comment: string, updated: string[]}>}
  */
 export async function updateEntry(bookName, uid, updates) {
+    uid = assertEntryUid(uid);
     const bookData = await loadWorldInfo(bookName);
     if (!bookData || !bookData.entries) {
         throw new Error(`Lorebook "${bookName}" not found or has no entry data.`);
@@ -190,6 +204,7 @@ export async function updateEntry(bookName, uid, updates) {
  * @returns {Promise<{uid: number, comment: string, action: string}>}
  */
 export async function forgetEntry(bookName, uid, hardDelete = false) {
+    uid = assertEntryUid(uid);
     const bookData = await loadWorldInfo(bookName);
     if (!bookData || !bookData.entries) {
         throw new Error(`Lorebook "${bookName}" not found or has no entry data.`);
@@ -239,6 +254,15 @@ export async function forgetEntry(bookName, uid, hardDelete = false) {
  * @returns {Promise<{uid: number, fromLabel: string, toLabel: string}>}
  */
 export async function moveEntry(bookName, uid, targetNodeId) {
+    uid = assertEntryUid(uid);
+    const bookData = await loadWorldInfo(bookName);
+    if (!bookData?.entries) {
+        throw new Error(`Lorebook "${bookName}" not found or has no entry data.`);
+    }
+    if (!findEntryByUid(bookData.entries, uid)) {
+        throw new Error(`Entry UID ${uid} not found in lorebook "${bookName}".`);
+    }
+
     const tree = getTree(bookName);
     if (!tree || !tree.root) {
         throw new Error(`No tree found for lorebook "${bookName}".`);
@@ -295,6 +319,7 @@ export function createCategory(bookName, label, parentNodeId) {
  * @returns {Promise<{entry: Object, bookName: string}|null>}
  */
 export async function findEntry(bookName, uid) {
+    if (typeof uid !== 'number' || !Number.isSafeInteger(uid) || uid < 0) return null;
     const bookData = await loadWorldInfo(bookName);
     if (!bookData || !bookData.entries) return null;
     const entry = findEntryByUid(bookData.entries, uid);
@@ -345,6 +370,8 @@ export async function listNodeEntries(bookName, nodeId) {
  * @returns {Promise<{uid: number, comment: string, removedUid: number, removedComment: string}>}
  */
 export async function mergeEntries(bookName, keepUid, removeUid, opts = {}) {
+    keepUid = assertEntryUid(keepUid);
+    removeUid = assertEntryUid(removeUid);
     if (keepUid === removeUid) {
         throw new Error('Cannot merge an entry with itself.');
     }
@@ -433,6 +460,7 @@ export async function mergeEntries(bookName, keepUid, removeUid, opts = {}) {
  * @returns {Promise<{originalUid: number, originalTitle: string, newUid: number, newTitle: string, nodeLabel: string}>}
  */
 export async function splitEntry(bookName, uid, { keepContent, keepTitle, newContent, newTitle, newKeys }) {
+    uid = assertEntryUid(uid);
     if (!keepContent || !keepContent.trim()) {
         throw new Error('keepContent cannot be empty — the original entry needs content.');
     }
@@ -454,14 +482,6 @@ export async function splitEntry(bookName, uid, { keepContent, keepTitle, newCon
     }
     const wasTracker = isTrackerUid(bookName, uid) || isTrackerTitle(original.comment);
 
-    // Update the original entry
-    original.content = keepContent.trim();
-    if (keepTitle && keepTitle.trim()) {
-        original.comment = keepTitle.trim();
-    }
-
-    await saveWorldInfo(bookName, bookData, true);
-
     // Find the node the original lives in, so we can place the new entry alongside it
     const tree = getTree(bookName);
     let nodeId = null;
@@ -470,25 +490,49 @@ export async function splitEntry(bookName, uid, { keepContent, keepTitle, newCon
         if (containingNode) nodeId = containingNode.id;
     }
 
-    // Create the new split-off entry (reuses createEntry for consistency)
-    const newResult = await createEntry(bookName, {
-        content: newContent,
-        comment: newTitle,
-        keys: newKeys || [],
-        nodeId,
-    });
-    if (wasTracker) {
-        setTrackerUid(bookName, uid, true);
-        setTrackerUid(bookName, newResult.uid, true);
+    // Stage both halves in the same lorebook data object, then persist once.
+    // This avoids committing a truncated original when ST cannot create the
+    // new entry (the previous createEntry path saved the original first).
+    const newEntry = createWorldInfoEntry(bookName, bookData);
+    if (!newEntry) {
+        throw new Error('Failed to create new lorebook entry (ST returned undefined).');
+    }
+    const newUid = assertEntryUid(newEntry.uid);
+    newEntry.content = newContent.trim();
+    newEntry.comment = newTitle.trim();
+    newEntry.key = Array.isArray(newKeys)
+        ? newKeys.map(key => String(key).trim()).filter(Boolean)
+        : [];
+    newEntry.selective = false;
+    newEntry.constant = false;
+    newEntry.disable = false;
+
+    original.content = keepContent.trim();
+    if (keepTitle && keepTitle.trim()) {
+        original.comment = keepTitle.trim();
     }
 
-    console.log(`[TunnelVision] Split entry UID ${uid} → kept "${original.comment}", created UID ${newResult.uid} "${newResult.comment}" in "${bookName}"`);
+    await saveWorldInfo(bookName, bookData, true);
+
+    let nodeLabel = '(no tree)';
+    if (tree?.root) {
+        const targetNode = nodeId ? findNodeById(tree.root, nodeId) : tree.root;
+        addEntryToNode(targetNode || tree.root, newUid);
+        nodeLabel = (targetNode || tree.root).label || 'Root';
+        saveTree(bookName, tree);
+    }
+    if (wasTracker) {
+        setTrackerUid(bookName, uid, true);
+        setTrackerUid(bookName, newUid, true);
+    }
+
+    console.log(`[TunnelVision] Split entry UID ${uid} → kept "${original.comment}", created UID ${newUid} "${newEntry.comment}" in "${bookName}"`);
     return {
         originalUid: uid,
         originalTitle: original.comment,
-        newUid: newResult.uid,
-        newTitle: newResult.comment,
-        nodeLabel: newResult.nodeLabel,
+        newUid,
+        newTitle: newEntry.comment,
+        nodeLabel,
     };
 }
 
@@ -502,6 +546,7 @@ export async function splitEntry(bookName, uid, { keepContent, keepTitle, newCon
  * @returns {Object|null}
  */
 export function findEntryByUid(entries, uid) {
+    if (typeof uid !== 'number' || !Number.isSafeInteger(uid) || uid < 0) return null;
     for (const key of Object.keys(entries)) {
         if (entries[key].uid === uid) return entries[key];
     }

@@ -28,6 +28,12 @@ import { hasEvaluableConditions, separateConditions, mapSelectiveLogic, describe
 import { isSidecarConfigured, sidecarGenerate, getSidecarModelLabel } from './llm-sidecar.js';
 import { logSidecarRetrieval, logConditionalEvaluations, setSidecarActive } from './activity-feed.js';
 import { applyBackgroundPromptAddendum, buildLanguageDirective } from './agent-utils.js';
+import {
+    conditionalEntryKey,
+    frameRetrievedContext,
+    normalizeConditionalEvaluation,
+    parseSafeUid,
+} from './sidecar-safety.js';
 
 const TV_SIDECAR_RETRIEVAL_KEY = 'tunnelvision_sidecar_retrieval';
 
@@ -142,6 +148,8 @@ async function collectConditionalEntries() {
         for (const key of Object.keys(bookData.entries)) {
             const entry = bookData.entries[key];
             if (!entry || entry.disable) continue;
+            const uid = parseSafeUid(entry.uid);
+            if (uid === null) continue;
             if (!hasEvaluableConditions(entry)) continue;
 
             const primary = separateConditions(entry.key || []);
@@ -163,8 +171,8 @@ async function collectConditionalEntries() {
 
             results.push({
                 bookName,
-                uid: entry.uid,
-                title: entry.comment || entry.key?.[0] || `Entry #${entry.uid}`,
+                uid,
+                title: entry.comment || entry.key?.[0] || `Entry #${uid}`,
                 primaryConditions: rolledPrimaryConditions,
                 primaryKeywords: rolledPrimaryKeywords,
                 secondaryConditions: rolledSecondaryConditions,
@@ -296,7 +304,7 @@ Return ONLY a JSON object:
   "reasoning": "Brief explanation of retrieval choices",
   "nodes": ["tv_123_abc"],
   "conditional_evaluations": [
-    {"uid": 42, "accepted": true, "reason": "Scene mood is tense and characters are in a forest"}
+    {"lorebook": "BookName", "uid": 42, "accepted": true, "reason": "Scene mood is tense and characters are in a forest"}
   ]
 }
 
@@ -304,7 +312,7 @@ Rules:
 - Pick 1-5 nodes maximum — prefer specific leaf nodes over broad branches
 - Pick nodes whose content would be most useful for the next character response
 - If nothing seems relevant, return empty nodes: []
-- For conditionals: evaluate EACH entry listed. Return accepted=true only if the scene genuinely matches
+- For conditionals: evaluate EACH entry listed. Copy its lorebook name and UID exactly; return accepted=true only if the scene genuinely matches
 - Be strict — do not accept conditions that are merely implied or could be true. They must clearly apply to the current scene
 - For negated conditions (prefixed with !): the condition is met when the described state is NOT present
 - For freeform conditions: evaluate the natural-language description against the current scene
@@ -354,12 +362,8 @@ function parseSidecarResponse(response) {
                 let conditionalEvaluations = [];
                 if (Array.isArray(parsed.conditional_evaluations)) {
                     conditionalEvaluations = parsed.conditional_evaluations
-                        .filter(e => e && typeof e === 'object' && typeof e.uid === 'number' && typeof e.accepted === 'boolean')
-                        .map(e => ({
-                            uid: e.uid,
-                            accepted: !!e.accepted,
-                            reason: typeof e.reason === 'string' ? e.reason : '',
-                        }));
+                        .map(normalizeConditionalEvaluation)
+                        .filter(Boolean);
                 }
 
                 return { nodeIds, reasoning, conditionalEvaluations };
@@ -392,14 +396,16 @@ function parseSidecarResponse(response) {
  * @returns {Promise<string>}
  */
 async function resolveConditionalContent(evaluations, conditionalEntries) {
-    const acceptedUids = new Set(
-        evaluations.filter(e => e.accepted).map(e => e.uid),
+    const acceptedEntries = new Set(
+        evaluations
+            .filter(e => e.accepted)
+            .map(e => conditionalEntryKey(e.lorebook, e.uid)),
     );
-    if (acceptedUids.size === 0) return '';
+    if (acceptedEntries.size === 0) return '';
 
     const results = [];
     for (const ce of conditionalEntries) {
-        if (!acceptedUids.has(ce.uid)) continue;
+        if (!acceptedEntries.has(conditionalEntryKey(ce.bookName, ce.uid))) continue;
 
         const bookData = await loadWorldInfo(ce.bookName);
         if (!bookData?.entries) continue;
@@ -463,6 +469,7 @@ export async function runSidecarRetrieval() {
         const response = await sidecarGenerate({
             prompt,
             systemPrompt: applyBackgroundPromptAddendum(SIDECAR_SYSTEM_PROMPT) + langDirective,
+            task: 'retrieval',
         });
 
         const { nodeIds, reasoning, conditionalEvaluations } = parseSidecarResponse(response);
@@ -477,7 +484,9 @@ export async function runSidecarRetrieval() {
         // Injection settings
         const position = mapPosition(settings.mandatoryPromptPosition);
         const depth = settings.mandatoryPromptDepth ?? 1;
-        const role = mapRole(settings.mandatoryPromptRole);
+        // Retrieved lore is model-selected, untrusted data. Keep its framing in
+        // one stable system-owned slot instead of inheriting a user/assistant role.
+        const role = extension_prompt_roles.SYSTEM;
         const maxChars = (settings.sidecarMaxInjectionTokens ?? 4000) * 4;
 
         // Resolve node content (tree-based retrieval)
@@ -510,8 +519,7 @@ export async function runSidecarRetrieval() {
         }
 
         // Combine with framing and cap
-        const framing = '[The following context has been automatically retrieved because it is relevant to the current scene. Incorporate it naturally.]\n\n';
-        const injectionText = framing + injectionParts.join('\n\n');
+        const injectionText = frameRetrievedContext(injectionParts.join('\n\n'));
         const capped = injectionText.length > maxChars
             ? injectionText.substring(0, maxChars) + '\n[... content truncated]'
             : injectionText;
@@ -542,7 +550,7 @@ export async function runSidecarRetrieval() {
         }
         if (conditionalEvaluations.length > 0) {
             console.log('Conditional evaluations:', conditionalEvaluations.map(e => {
-                const ce = conditionalEntries.find(c => c.uid === e.uid);
+                const ce = conditionalEntries.find(c => c.bookName === e.lorebook && c.uid === e.uid);
                 return `${ce?.title || `uid:${e.uid}`} → ${e.accepted ? 'ACCEPTED' : 'REJECTED'} (${e.reason})`;
             }));
         }
@@ -563,7 +571,7 @@ export async function runSidecarRetrieval() {
 function clearRetrievalPrompt(settings) {
     const position = mapPosition(settings.mandatoryPromptPosition);
     const depth = settings.mandatoryPromptDepth ?? 1;
-    const role = mapRole(settings.mandatoryPromptRole);
+    const role = extension_prompt_roles.SYSTEM;
     setExtensionPrompt(TV_SIDECAR_RETRIEVAL_KEY, '', position, depth, false, role);
 }
 
@@ -577,19 +585,5 @@ function mapPosition(val) {
         case 'in_prompt': return extension_prompt_types.IN_PROMPT;
         case 'in_chat':
         default: return extension_prompt_types.IN_CHAT;
-    }
-}
-
-/**
- * Map role setting to ST enum.
- * @param {string} val
- * @returns {number}
- */
-function mapRole(val) {
-    switch (val) {
-        case 'user': return extension_prompt_roles.USER;
-        case 'assistant': return extension_prompt_roles.ASSISTANT;
-        case 'system':
-        default: return extension_prompt_roles.SYSTEM;
     }
 }
